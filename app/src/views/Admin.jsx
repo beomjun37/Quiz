@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Dices, ExternalLink, ListOrdered, Lock, RotateCcw, Save, SlidersHorizontal, Upload, Users } from 'lucide-react'
+import { ChevronRight, Dices, ExternalLink, ListOrdered, Lock, RotateCcw, Save, Trash2, SlidersHorizontal, Upload, Users } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useView } from '../lib/useView'
 import { errText, fmt } from '../lib/ui'
@@ -64,9 +64,17 @@ export default function Admin() {
         <span>스크린 <a href={`${base}#/screen`} target="_blank" rel="noreferrer">{base}#/screen <ExternalLink size={13} /></a></span>
       </div>
 
-      <h3>초기화</h3>
-      <button className="danger" disabled={busy} onClick={() => confirm('참가자·답안·점수를 전부 지울까요? (문항은 그대로)') && run('reset')}>
-        <RotateCcw size={15} style={{ verticalAlign: -2 }} /> 전체 초기화 · 개인정보 삭제</button>
+      <h3>다시 하기</h3>
+      <button className="ghost" disabled={busy} onClick={() => confirm('게임을 처음부터 다시 할까요?\n참가자는 그대로 남고 점수만 0점이 됩니다. (가상 참가자는 빠져요)') && run('restart')}>
+        <RotateCcw size={15} style={{ verticalAlign: -2 }} /> 처음부터 다시 (참가자 유지)</button>
+      <p className="lead" style={{ fontSize: 13, margin: '4px 0 0' }}>리허설 끝나고 실전 시작할 때, 게임을 한 판 더 할 때 누르세요.</p>
+
+      <details style={{ marginTop: 18 }}>
+        <summary style={{ cursor: 'pointer', color: 'var(--mute)', fontSize: 14 }}>행사 종료 후: 개인정보 삭제</summary>
+        <p className="lead" style={{ fontSize: 13 }}>참가자 닉네임·점수를 모두 지웁니다. 접속 중인 모든 폰이 입장 화면으로 돌아가요.</p>
+        <button className="danger" disabled={busy} onClick={() => prompt('정말 지우려면 "삭제"라고 입력하세요') === '삭제' && run('reset')}>
+          <Trash2 size={15} style={{ verticalAlign: -2 }} /> 참가자 전체 삭제</button>
+      </details>
     </section>
 
     <section className="panel">

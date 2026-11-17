@@ -232,7 +232,7 @@ begin
     n := (p_arg->>'n')::int - (select count(*) from hq_players);
     for i in 1..greatest(n, 0) loop
       insert into hq_players (name, table_no, is_bot)
-      values ((array['삼겹살킬러','노래방황제','소맥장인','막내아님','칼퇴요정','골뱅이러버','회식반장','건배사달인','엑셀고수','주말등산러','야구광','낚시왕'])[1 + (i % 12)] || (select count(*) + 1 from hq_players),
+      values ((array['찍기의 신','검토해보겠습니다','PC방 고인물','도토리 부자','월요병 말기','막차 사수대','오늘 안 취함','일단 킵하시죠','퇴근 5분 전','법카의 수호자','연차 장인','읽씹 장인'])[1 + (i % 12)] || ' ' || (select count(*) + 1 from hq_players),
               0, true);
     end loop;
 
@@ -243,6 +243,11 @@ begin
     select (ord - 1)::int, e->>'round', e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
            coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15)
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
+
+  elsif p_action = 'restart' then                   -- 게임만 처음부터: 참가자는 그대로 두고 점수·답안·베팅·추첨만 비운다. 가상 참가자는 뺀다.
+    delete from hq_answers; delete from hq_bets; delete from hq_players where is_bot;
+    update hq_players set score = 0, active = false, won = false, prev_score = 0, prev_rank = null, last_gain = 0;
+    update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_id = null, drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'reset' then                     -- 리허설 후 / 행사 후 개인정보 삭제
     delete from hq_answers; delete from hq_bets; delete from hq_players;
