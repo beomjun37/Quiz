@@ -16,7 +16,7 @@ export const ERR = {
   BAD_PIN: 'PIN이 틀렸어요',
   ONLY_IN_LOBBY: '문항은 시작 전(대기 단계)에만 바꿀 수 있어요',
 }
-export const errText = (m) => ERR[Object.keys(ERR).find((k) => m?.includes(k))] ?? '연결이 잠깐 끊겼어요. 다시 눌러 주세요'
+export const errText = (m) => ERR[Object.keys(ERR).find((k) => m?.includes(k))] ?? (/fetch|network|load failed|timeout/i.test(m ?? '') ? '연결이 잠깐 끊겼어요. 다시 눌러 주세요' : '처리 중 문제가 생겼어요')
 
 // 닉네임 주사위: 조합형은 어색해서, 회식 자리에서 웃길 만한 완성형만 골라 둔다(12자 이내).
 const NICKS = [
