@@ -161,19 +161,19 @@ begin
 
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
-    delete from hq_questions;
+    delete from hq_questions where true;  -- Supabase 는 WHERE 없는 UPDATE/DELETE 를 막는다(pg-safeupdate)
     insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec)
     select (ord - 1)::int, e->>'round', e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
            coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15)
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
 
   elsif p_action = 'restart' then                   -- 게임만 처음부터: 참가자는 그대로 두고 점수·답안·베팅·추첨만 비운다. 가상 참가자는 뺀다.
-    delete from hq_answers; delete from hq_bets; delete from hq_players where is_bot;
-    update hq_players set score = 0, active = false, won = false, prev_score = 0, prev_rank = null, last_gain = 0;
+    delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where is_bot;
+    update hq_players set score = 0, active = false, won = false, prev_score = 0, prev_rank = null, last_gain = 0 where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_id = null, drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'reset' then                     -- 리허설 후 / 행사 후 개인정보 삭제
-    delete from hq_answers; delete from hq_bets; delete from hq_players;
+    delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_id = null, drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'questions_get' then
@@ -227,7 +227,7 @@ begin
     update hq_players p set score = p.score + hq_points(a.choice = q.answer, s.q_started_at, a.at, q.limit_sec), active = true
     from hq_answers a where a.player_id = p.id and a.qi = s.qi;
   end if;
-  update hq_players set last_gain = score - prev_score;
+  update hq_players set last_gain = score - prev_score where true;
   update hq_state set phase = 'answer', updated_at = now() where id = 1;
 end $$;
 
