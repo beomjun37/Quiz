@@ -15,7 +15,8 @@ export default function Phone() {
   const [msg, setMsg] = useState(null)
 
   // 진행자가 초기화해 내 기록이 사라졌으면 입장부터 다시
-  useEffect(() => { if (view && pid && view._for === pid && !view.me) { store(null); setPid(null) } }, [view, pid])
+  const [kicked, setKicked] = useState(false)
+  useEffect(() => { if (view && pid && view._for === pid && !view.me) { store(null); setPid(null); setKicked(true) } }, [view, pid])
   useEffect(() => { setMsg(null) }, [view?.phase, view?.qi])
 
   async function act(fn) {
@@ -29,7 +30,7 @@ export default function Phone() {
       <p className="title">한잔 퀴즈</p><p className="lead">{error ? '연결 중이에요…' : '불러오는 중…'}</p></div></div>
   )
 
-  if (!pid) return <Join view={view} act={act} msg={msg} busy={busy} onJoined={(id) => { store(id); setPid(id) }} />
+  if (!pid) return <Join view={view} act={act} msg={msg || (kicked ? '진행자가 게임을 새로 준비했어요. 닉네임으로 다시 들어와 주세요' : null)} busy={busy} onJoined={(id) => { store(id); setPid(id) }} />
 
   const me = view.me
   if (!me) return <Waiting icon={<Beer size={38} />} title="입장하는 중…" text="잠시만요" />
@@ -89,7 +90,7 @@ function Join({ view, act, msg, busy, onJoined }) {
         <div className="field">
           <input ref={ref} autoFocus maxLength={12} autoComplete="off" enterKeyHint="go"
             placeholder="예: 소맥장인" value={name} onChange={(e) => setName(e.target.value)} />
-          <button type="button" className="icon-btn" aria-label="닉네임 추천" onClick={() => { setName(randomNick()); ref.current?.focus() }}><Dices size={28} /></button>
+          <button type="button" className="icon-btn" aria-label="닉네임 추천" onClick={() => { setName((v) => randomNick(v)); ref.current?.focus() }}><Dices size={28} /></button>
         </div>
         <span className="lead" style={{ fontSize: 15 }}>고민되면 주사위를 눌러 보세요</span>
       </label>

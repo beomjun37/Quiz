@@ -18,9 +18,19 @@ export const ERR = {
 }
 export const errText = (m) => ERR[Object.keys(ERR).find((k) => m?.includes(k))] ?? '연결이 잠깐 끊겼어요. 다시 눌러 주세요'
 
-// 닉네임 주사위 — 입력이 귀찮은 사람용
-const A = ['소맥', '삼겹살', '노래방', '칼퇴', '골뱅이', '건배사', '야근', '엑셀', '등산', '낚시', '막걸리', '치맥']
-const B = ['황제', '장인', '요정', '킬러', '달인', '반장', '고수', '대장', '마스터', '전설']
-export const randomNick = () => A[Math.floor(Math.random() * A.length)] + B[Math.floor(Math.random() * B.length)]
+// 닉네임 주사위: 조합형은 어색해서, 회식 자리에서 웃길 만한 완성형만 골라 둔다(12자 이내).
+const NICKS = [
+  '검토해 보겠습니다', '긍정적으로 검토 중', '일단 킵하시죠', '다음 주에 다시 봅시다', 'ASAP 수신자',
+  '참조로만 사는 사람', '회의록 안 읽은 자', '컨펌 대기 중', '읽씹 장인', '퇴근 5분 전',
+  '월요병 말기', '연차 소진 장인', '주 52시간 수호자', '법카의 수호자', '점심 메뉴 결정권자',
+  '1차만 하고 갑니다', '2차는 제가 쏩니다', '막차 사수대', '숙취는 내일의 몫', '소맥 비율 연구소장',
+  '건배사 준비 안 함', '노래방 예약 담당', '오늘은 안 취함', '사실 정답 앎', '찍기의 신',
+  '감으로 푸는 사람', 'PC방 고인물', '도토리 부자', '삐삐 세대 대표', '2002의 함성',
+]
+export const randomNick = (prev) => {
+  let n
+  do n = NICKS[Math.floor(Math.random() * NICKS.length)]; while (n === prev && NICKS.length > 1)
+  return n
+}
 
 export const fmt = (n) => (n ?? 0).toLocaleString('ko-KR')
