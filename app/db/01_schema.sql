@@ -71,6 +71,20 @@ alter table hq_players add column if not exists won boolean not null default fal
 alter table hq_players add column if not exists prev_score int not null default 0;
 alter table hq_players add column if not exists prev_rank int;
 alter table hq_players add column if not exists last_gain int not null default 0;
+alter table hq_players add column if not exists streak int not null default 0;          -- 연속 정답 수
+alter table hq_players add column if not exists last_bonus jsonb not null default '{}';  -- 이번 문제 보너스 내역
+alter table hq_players add column if not exists card text;                               -- 사용한 찬스 카드: fifty | double
+alter table hq_players add column if not exists card_qi int;                             -- 카드를 쓴 문제
+alter table hq_players add column if not exists card_hide jsonb;                         -- 50:50 으로 지운 보기
+
+-- 투표형(정답 없음) 문항 허용
+alter table hq_questions alter column answer drop not null;
+alter table hq_questions drop constraint if exists hq_questions_type_check;
+alter table hq_questions add constraint hq_questions_type_check check (type in ('ox','mc','poll'));
+
+-- 문항 이미지(어린 시절 사진 등). 폰에서 줄인 JPEG data URL. 현재 문제일 때만 RPC 로 꺼낼 수 있다.
+create table if not exists hq_images (idx int primary key, data text not null);
+alter table hq_images enable row level security;
 
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
