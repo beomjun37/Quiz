@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>한잔 퀴즈</title>
+<style>
+:root{--bg:#14161b;--card:#1f232b;--line:#2e3440;--fg:#f3f4f6;--mute:#9aa3b2;--acc:#ffb23e;--o:#3b82f6;--x:#ef4444;--ok:#22c55e;
+ --c1:#3b82f6;--c2:#ef4444;--c3:#eab308;--c4:#22c55e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;font-size:20px}
+button{font:inherit;border:0;border-radius:14px;cursor:pointer;color:#fff}
+.phone{max-width:430px;margin:0 auto;min-height:100vh;padding:20px 16px;display:flex;flex-direction:column;gap:16px}
+.big{font-size:30px;font-weight:800;line-height:1.3}
+.mute{color:var(--mute);font-size:17px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px}
+.btn{min-height:72px;font-size:24px;font-weight:800;width:100%;background:var(--acc);color:#111}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.opt{min-height:96px;font-size:22px;font-weight:800;padding:10px}
+input{font:inherit;font-size:24px;width:100%;padding:16px;border-radius:14px;border:2px solid var(--line);background:#0e1014;color:var(--fg)}
+.tag{display:inline-block;background:var(--acc);color:#111;font-weight:800;border-radius:999px;padding:4px 12px;font-size:16px}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--acc);transition:width .3s linear}
+.screen{min-height:100vh;padding:40px 56px;display:flex;flex-direction:column;gap:28px}
+.screen h1{font-size:56px;margin:0}
+.rank{display:grid;grid-template-columns:70px 1fr 160px;align-items:center;font-size:34px;padding:12px 20px;border-radius:14px;background:var(--card);margin-bottom:10px;transition:all .4s}
+.rank.top{background:var(--acc);color:#111;font-weight:900}
+.admin{max-width:1100px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:16px}
+.admin button{padding:12px 16px;background:#374151;margin:4px 4px 0 0;font-size:16px}
+.admin button.go{background:var(--acc);color:#111;font-weight:800}
+.demo{display:grid;grid-template-columns:400px 1fr;gap:12px;height:100vh;padding:12px}
+.demo iframe{width:100%;height:100%;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.wheel{font-size:120px;font-weight:900;text-align:center;color:var(--acc);padding:40px 0}
+@media(max-width:800px){.admin,.demo{grid-template-columns:1fr}.screen{padding:20px}.screen h1{font-size:34px}.rank{font-size:22px;grid-template-columns:44px 1fr 90px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ---------- 문항 (진행자가 회식 전에 바꾸는 부분) ---------- */
+const Q = [
+ {r:'R1 추억 소환',type:'ox',q:'2002 월드컵에서 한국은 4강에 올랐다.',a:0,note:'4강 신화! 그날 어디서 보셨어요?'},
+ {r:'R1 추억 소환',type:'mc',q:'스타크래프트에서 "Show me the money"를 치면?',o:['유닛 무적','자원 1만','맵 전체 보기','건설 즉시 완료'],a:1,note:'PC방 시간당 1,000원이던 시절'},
+ {r:'R1 추억 소환',type:'mc',q:'삐삐 숫자 "8282"의 뜻은?',o:['사랑해','빨리빨리','잘자','보고싶어'],a:1,note:'"1004"는 천사, "486"은 사랑해'},
+ {r:'R1 추억 소환',type:'ox',q:'싸이월드 화폐 이름은 "도토리"였다.',a:0,note:'BGM 사려고 도토리 충전하셨죠?'},
+ {r:'R2 부장님 마음 맞히기',type:'mc',q:'부장님 최애 회식 안주는?',o:['삼겹살','회','치킨','골뱅이'],a:0,note:'부장님 한 말씀 부탁드립니다!'},
+ {r:'R2 부장님 마음 맞히기',type:'mc',q:'부장님 노래방 18번은 몇 년대 노래?',o:['80년대','90년대','2000년대','최신곡'],a:1,note:'2차 노래방에서 검증 예정'},
+ {r:'R3 올인 베팅',type:'mc',q:'1997년 IMF 때 국민이 모은 금은 약 몇 톤?',o:['약 50톤','약 120톤','약 227톤','약 500톤'],a:2,note:'약 350만 명 참여',bet:true},
+];
+const LIMIT = 15; // 초
+
+/* ---------- 상태 동기화: localStorage + BroadcastChannel (실서비스는 Supabase Realtime) ---------- */
+const KEY='hanjan-quiz', ch=new BroadcastChannel(KEY);
+const init=()=>({phase:'lobby',qi:-1,qStart:0,tables:6,players:{},ans:{},bets:{},scored:{},winner:null});
+let S; try{S=JSON.parse(localStorage.getItem(KEY))||init()}catch{S=init()}
+function save(fn){fn(S);localStorage.setItem(KEY,JSON.stringify(S));ch.postMessage(1);render()}
+ch.onmessage=()=>{S=JSON.parse(localStorage.getItem(KEY));render()};
+let me=localStorage.getItem(KEY+'-me');
+
+/* ---------- 점수 ---------- */
+function points(qi,a){const q=Q[qi];if(!a||a.c!==q.a)return 0;const left=Math.max(0,LIMIT-(a.t-S.qStart)/1000);return Math.round(500+500*left/LIMIT)}
+function scoreQ(qi){ if(S.scored[qi])return; S.scored[qi]=1; const q=Q[qi];
+ for(const [pid,a] of Object.entries(S.ans[qi]||{})){const p=S.players[pid];if(!p)continue;
+  if(q.bet){const stake=Math.round(p.score*(S.bets[pid]??0)/100);p.score+= a.c===q.a?stake+points(qi,a):-stake}
+  else p.score+=points(qi,a); p.active=1}}
+function teams(){const t={};for(const p of Object.values(S.players)){(t[p.table]??={n:0,sum:0,all:0}).all++;if(p.active){t[p.table].n++;t[p.table].sum+=p.score}}
+ return Object.entries(t).map(([k,v])=>({table:+k,all:v.all,avg:v.n?Math.round(v.sum/v.n):0})).sort((a,b)=>b.avg-a.avg)}
+const left=()=>Math.max(0,Math.ceil(LIMIT-(Date.now()-S.qStart)/1000));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const optColors=['var(--c1)','var(--c2)','var(--c3)','var(--c4)'];
+
+/* ---------- 참가자 폰 ---------- */
+let draftName='';
+function phone(){
+ const p=S.players[me];
+ if(!p) return `<div class="phone"><div class="big">🍻 한잔 퀴즈</div><div class="mute">이름 쓰고, 앉은 테이블 번호만 누르면 끝!</div>
+  <input id="nm" placeholder="이름 (예: 김부장)" value="${esc(draftName)}" oninput="draftName=this.value">
+  <div class="mute">우리 테이블은?</div><div class="grid3">${Array.from({length:S.tables},(_,i)=>`<button class="opt" style="background:#374151" onclick="join(${i+1})">${i+1}번</button>`).join('')}</div></div>`;
+ const head=`<div class="mute">${esc(p.name)} · ${p.table}번 테이블 · <b style="color:var(--acc)">${p.score}점</b></div>`;
+ const q=Q[S.qi], mine=S.ans[S.qi]?.[me];
+ if(S.phase==='lobby') return `<div class="phone">${head}<div class="card big">입장 완료!<br>잔 채우고 기다려 주세요 🍺</div><div class="mute">곧 화면에 첫 문제가 뜹니다.</div></div>`;
+ if(S.phase==='bet'){const b=S.bets[me];return `<div class="phone">${head}<span class="tag">R3 올인 베팅</span><div class="big">마지막 문제!<br>내 점수 얼마나 걸까?</div><div class="mute">맞히면 건 만큼 더 받고, 틀리면 건 만큼 잃습니다.</div>
+  ${[0,50,100].map(v=>`<button class="btn" style="${b===v?'outline:4px solid #fff':''};background:${v===100?'var(--x)':v===50?'var(--acc)':'#374151'};color:${v===50?'#111':'#fff'}" onclick="bet(${v})">${v===0?'안 건다 (0%)':v===50?'반만 (50%)':'올인 (100%) 🔥'}</button>`).join('')}
+  ${b!=null?`<div class="mute">선택 완료 · 바꿀 수 있어요</div>`:''}</div>`}
+ if(S.phase==='q'){ if(mine) return `<div class="phone">${head}<div class="card big">제출 완료 ✅</div><div class="mute">정답은 화면에서 공개됩니다.</div></div>`;
+  const opts=q.type==='ox'?[['O','var(--o)'],['X','var(--x)']]:q.o.map((o,i)=>[`${i+1}. ${o}`,optColors[i]]);
+  return `<div class="phone">${head}<span class="tag">${q.r}</span><div class="bar"><i id="tb" style="width:${left()/LIMIT*100}%"></i></div><div class="big">${esc(q.q)}</div>
+  <div class="${q.type==='ox'?'grid2':''}" style="display:grid;gap:12px">${opts.map(([l,c],i)=>`<button class="opt" style="background:${c};${q.type==='ox'?'font-size:56px;min-height:160px':''}" onclick="answer(${i})">${esc(l)}</button>`).join('')}</div></div>`}
+ if(S.phase==='answer'){const ok=mine&&mine.c===q.a;return `<div class="phone">${head}<div class="card big" style="background:${!mine?'var(--card)':ok?'var(--ok)':'var(--x)'}">${!mine?'시간 초과 ⏰':ok?'정답! 🎉':'아쉽다 😅'}</div><div class="mute">${esc(q.note)}</div></div>`}
+ if(S.phase==='final'){const r=teams().findIndex(t=>t.table===p.table)+1;return `<div class="phone">${head}<div class="card big">우리 테이블 ${r}위!</div><div class="mute">곧 행운의 추첨이 시작됩니다 🎁</div></div>`}
+ if(S.phase==='draw') return `<div class="phone">${head}<div class="card big">${S.winner===me?'🎉 당첨! 앞으로 나와주세요':S.winner?`당첨: ${esc(S.players[S.winner]?.name)}`:'두근두근 추첨 중...'}</div></div>`;
+}
+function join(t){const n=(document.getElementById('nm').value||'').trim();if(!n)return alert('이름을 입력해 주세요');me='p'+Date.now().toString(36);localStorage.setItem(KEY+'-me',me);save(s=>s.players[me]={name:n.slice(0,10),table:t,score:0})}
+function answer(i){if(left()<=0)return;save(s=>{(s.ans[s.qi]??={})[me]??={c:i,t:Date.now()}})}
+function bet(v){save(s=>s.bets[me]=v)}
+
+/* ---------- 스크린 (TV/빔) ---------- */
+function screen(){
+ const n=Object.keys(S.players).length, q=Q[S.qi];
+ const rankHtml=(lim)=>teams().slice(0,lim).map((t,i)=>`<div class="rank ${i===0?'top':''}"><span>${i+1}</span><span>${t.table}번 테이블 <small class="mute">(${t.all}명)</small></span><span style="text-align:right">${t.avg}</span></div>`).join('');
+ if(S.phase==='lobby'){const url=location.href.split('#')[0];return `<div class="screen"><h1>🍻 한잔 퀴즈</h1><div style="display:flex;gap:40px;align-items:center;flex-wrap:wrap">
+  <img alt="입장 QR" width="260" height="260" style="background:#fff;border-radius:16px;padding:10px" src="https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}">
+  <div><div class="big" style="font-size:44px">QR 찍고 입장!</div><div style="font-size:120px;font-weight:900;color:var(--acc)">${n}<small style="font-size:40px">명</small></div></div></div></div>`}
+ if(S.phase==='bet'){const b=Object.values(S.bets);return `<div class="screen"><span class="tag" style="font-size:28px">R3 올인 베팅</span><h1>마지막 문제, 얼마나 거시겠습니까?</h1>
+  <div style="display:flex;gap:40px;font-size:44px">${[[100,'올인 🔥'],[50,'반만'],[0,'안 건다']].map(([v,l])=>`<div class="card" style="flex:1;text-align:center">${l}<div style="font-size:90px;font-weight:900;color:var(--acc)">${b.filter(x=>x===v).length}</div></div>`).join('')}</div>${rankHtml(5)}</div>`}
+ if(S.phase==='q'||S.phase==='answer'){const A=Object.values(S.ans[S.qi]||{}),cnt=(q.type==='ox'?2:4);
+  const labels=q.type==='ox'?['O','X']:q.o.map((o,i)=>`${i+1}. ${o}`), cols=q.type==='ox'?['var(--o)','var(--x)']:optColors;
+  return `<div class="screen"><div><span class="tag" style="font-size:28px">${q.r} · ${S.qi+1}/${Q.length}</span></div><h1>${esc(q.q)}</h1>
+  ${S.phase==='q'?`<div style="font-size:90px;font-weight:900;color:var(--acc)" id="tl">${left()}</div><div style="font-size:36px">${A.length} / ${n}명 제출</div>`:''}
+  <div style="display:grid;grid-template-columns:repeat(${cnt===2?2:2},1fr);gap:16px">${labels.map((l,i)=>{const k=A.filter(a=>a.c===i).length,win=S.phase==='answer'&&i===q.a;
+   return `<div class="card" style="font-size:36px;border:4px solid ${win?'#fff':'transparent'};background:${S.phase==='answer'&&!win?'#2a2e36':cols[i]};opacity:${S.phase==='answer'&&!win?.5:1}">${esc(l)}${S.phase==='answer'?` <b style="float:right">${k}명</b>`:''}</div>`}).join('')}</div>
+  ${S.phase==='answer'?`<div class="big" style="font-size:40px">💬 ${esc(q.note)}</div>${rankHtml(5)}`:''}</div>`}
+ if(S.phase==='final') return `<div class="screen"><h1>🏆 최종 순위</h1>${rankHtml(12)}</div>`;
+ if(S.phase==='draw') return `<div class="screen"><h1>🎁 행운의 추첨</h1><div class="wheel" id="wh">${S.winner?esc(S.players[S.winner].name)+' 님!':esc(S.spin||'???')}</div>${S.winner?`<div class="big" style="text-align:center">${S.players[S.winner].table}번 테이블 축하합니다 🎉</div>`:''}</div>`;
+}
+
+/* ---------- 진행자 ---------- */
+const NAMES='김부장 이차장 박과장 최대리 정사원 강부장 조차장 윤과장 장대리 임사원 한팀장 오수석 서책임 신선임 권매니저'.split(' ');
+function admin(){
+ const n=Object.keys(S.players).length, nx=S.qi+1;
+ const next = S.phase==='lobby'||S.phase==='answer' ? (nx<Q.length ? (Q[nx].bet&&S.phase!=='bet'?`<button class="go" onclick="go('bet')">▶ R3 베팅 열기</button>`:`<button class="go" onclick="openQ()">▶ 문제 ${nx+1} 열기</button>`):`<button class="go" onclick="go('final')">▶ 최종 순위</button>`)
+  : S.phase==='bet'?`<button class="go" onclick="openQ()">▶ 베팅 마감, 마지막 문제</button>`
+  : S.phase==='q'?`<button class="go" onclick="reveal()">▶ 정답 공개</button>`
+  : S.phase==='final'?`<button class="go" onclick="go('draw')">▶ 추첨 화면</button>`
+  : `<button class="go" onclick="draw()">🎲 추첨 돌리기</button>`;
+ return `<div class="admin"><div class="card"><h2>🎛 진행</h2><div>단계: <b>${S.phase}</b> · 문제 ${S.qi+1}/${Q.length} · 참가 ${n}명</div><div style="margin-top:8px">${next}</div>
+  <h3>테이블 수</h3>${[3,4,5,6,8,10,12].map(t=>`<button ${S.tables===t?'class="go"':''} onclick="save(s=>s.tables=${t})">${t}</button>`).join('')}
+  <h3>시뮬레이션 (가상 참가자)</h3>${[20,50,100].map(k=>`<button onclick="bots(${k})">${k}명 채우기</button>`).join('')}
+  <h3>위험 구역</h3><button style="background:var(--x)" onclick="confirm('전부 초기화할까요?')&&(localStorage.removeItem(KEY+'-me'),save(s=>Object.assign(s,init())))">전체 초기화</button></div>
+  <div class="card"><h2>📊 테이블 순위</h2>${teams().map((t,i)=>`<div>${i+1}. ${t.table}번 (${t.all}명) — ${t.avg}점</div>`).join('')||'<div class="mute">아직 없음</div>'}
+  <h3>문항</h3>${Q.map((q,i)=>`<div style="opacity:${i<=S.qi?.5:1}">${i+1}. [${q.r}] ${esc(q.q)}</div>`).join('')}</div></div>`;
+}
+function go(ph){save(s=>s.phase=ph)}
+function openQ(){save(s=>{s.qi++;s.phase='q';s.qStart=Date.now()});botAnswers()}
+function reveal(){save(s=>{s.phase='answer';scoreQ(s.qi)})}
+function draw(){let k=0;const ids=Object.keys(S.players);if(!ids.length)return;save(s=>s.winner=null);const iv=setInterval(()=>{save(s=>s.spin=s.players[ids[k++%ids.length]].name);if(k>25){clearInterval(iv);save(s=>s.winner=ids[Math.floor(Math.random()*ids.length)])}},90)}
+function bots(k){save(s=>{const have=Object.values(s.players).length;for(let i=have;i<k;i++)s.players['b'+i]={name:NAMES[i%NAMES.length]+(i>=NAMES.length?Math.floor(i/NAMES.length)+1:''),table:1+i%s.tables,score:0,bot:1}})}
+function botAnswers(){const qi=S.qi,q=Q[qi];if(q.bet)save(s=>{for(const[id,p]of Object.entries(s.players))if(p.bot)s.bets[id]=[0,50,100][Math.floor(Math.random()*3)]});
+ for(const[id,p]of Object.entries(S.players)){if(!p.bot)continue;const d=1500+Math.random()*11000;setTimeout(()=>{if(S.qi!==qi||S.phase!=='q')return;
+  const n=q.type==='ox'?2:4,c=Math.random()<.65?q.a:Math.floor(Math.random()*n);save(s=>{(s.ans[qi]??={})[id]??={c,t:Date.now()}})},d)}}
+
+/* ---------- 데모: 폰 + 스크린 + 진행자 한 화면에 ---------- */
+function demo(){const b=location.href.split('#')[0];return `<div class="demo"><iframe src="${b}#/"></iframe><div style="display:grid;grid-template-rows:1.3fr 1fr;gap:12px"><iframe src="${b}#/screen"></iframe><iframe src="${b}#/admin"></iframe></div></div>`}
+
+/* ---------- 라우터 ---------- */
+let lastHtml='';
+function render(){const r=location.hash.replace('#','')||'/';
+ if(r==='/demo'&&lastHtml==='demo')return;
+ const h=r==='/screen'?screen():r==='/admin'?admin():r==='/demo'?(lastHtml='demo',demo()):phone();
+ if(r!=='/demo')lastHtml='';
+ const app=document.getElementById('app');if(app.innerHTML!==h){const f=document.activeElement?.id;app.innerHTML=h;if(f){const el=document.getElementById(f);el&&el.focus()}}}
+addEventListener('hashchange',()=>{lastHtml='';render()});
+setInterval(()=>{if(S.phase!=='q')return;const tb=document.getElementById('tb'),tl=document.getElementById('tl');if(tb)tb.style.width=left()/LIMIT*100+'%';if(tl)tl.textContent=left()},250);
+render();
+</script>
+</body>
+</html>
