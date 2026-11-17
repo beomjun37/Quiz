@@ -1,9 +1,10 @@
 import { useState } from 'react'
+import { ChevronRight, Dices, ExternalLink, ListOrdered, Lock, RotateCcw, Save, SlidersHorizontal, Upload, Users } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useView } from '../lib/useView'
-import { errText } from '../lib/ui'
+import { errText, fmt } from '../lib/ui'
 
-// 진행자 노트북용. 권한은 서버(hq_admin)가 PIN 으로 매번 검증한다 — 이 화면 URL 이 새도 조작 불가.
+// 진행자 노트북용. 권한은 서버(hq_admin)가 PIN으로 매번 검증한다. URL이 새도 조작 불가.
 export default function Admin() {
   const [pin, setPin] = useState(() => sessionStorage.getItem('hq-pin') ?? '')
   const [ok, setOk] = useState(false)
@@ -17,65 +18,71 @@ export default function Admin() {
     try { const r = await rpc('hq_admin', { p_pin: pin, p_action: action, p_arg: arg }); await refetch(); return r }
     catch (e) { setMsg(errText(e.message)); throw e } finally { setBusy(false) }
   }
+  const run = (action, arg) => admin(action, arg).catch(() => {})
 
-  if (!ok) return <div className="admin" style={{ gridTemplateColumns: '1fr', maxWidth: 420 }}><div className="card">
-    <h2>🎛 진행자 로그인</h2>
-    <input type="password" inputMode="numeric" placeholder="PIN" value={pin} onChange={(e) => setPin(e.target.value)} />
-    <button className="go" disabled={busy} onClick={() => admin('check').then(() => { sessionStorage.setItem('hq-pin', pin); setOk(true) }).catch(() => {})}>들어가기</button>
-    {msg && <div className="err">{msg}</div>}
-  </div></div>
+  if (!ok) return <div className="admin" style={{ gridTemplateColumns: '1fr', maxWidth: 440 }}>
+    <form className="panel" onSubmit={(e) => { e.preventDefault(); admin('check').then(() => { sessionStorage.setItem('hq-pin', pin); setOk(true) }).catch(() => {}) }}>
+      <h2><Lock size={20} />진행자 로그인</h2>
+      <input type="password" inputMode="numeric" autoFocus placeholder="PIN" value={pin} onChange={(e) => setPin(e.target.value)} />
+      <button className="go" disabled={busy}>들어가기<ChevronRight size={20} /></button>
+      {msg && <div className="err" style={{ marginTop: 12 }}>{msg}</div>}
+    </form>
+  </div>
 
   if (!view) return <div className="admin">불러오는 중…</div>
-  const nextLabel = {
-    lobby: view.next_is_bet ? '▶ R3 베팅 열기' : '▶ 문제 1 열기',
-    answer: view.qi + 1 >= view.total_q ? '▶ 최종 순위' : view.next_is_bet ? '▶ R3 베팅 열기' : `▶ 문제 ${view.qi + 2} 열기`,
-    bet: '▶ 베팅 마감 → 마지막 문제', q: '▶ 정답 공개', final: '▶ 추첨 화면으로', draw: null,
+  const last = view.qi + 1 >= view.total_q
+  const next = {
+    lobby: view.next_is_bet ? '베팅 열기' : '1번 문제 열기',
+    answer: last ? '최종 순위 공개' : view.next_is_bet ? '마지막 베팅 열기' : `${view.qi + 2}번 문제 열기`,
+    bet: '베팅 마감 · 마지막 문제', q: '정답 공개', final: '추첨 화면으로', draw: null,
   }[view.phase]
-  const q = view.question
+  const phaseKo = { lobby: '입장 대기', bet: '베팅 중', q: '문제 푸는 중', answer: '정답 공개됨', final: '최종 순위', draw: '추첨' }[view.phase]
+  const base = location.href.split('#')[0]
 
   return <div className="admin">
-    <div className="card">
-      <h2>🎛 진행</h2>
-      <div>단계 <b>{view.phase}</b> · 문제 {view.qi + 1}/{view.total_q} · 참가 <b>{view.players}</b>명
-        {view.phase === 'q' && <> · 제출 <b>{view.submitted}</b>명</>}</div>
-      {q && <div className="mute" style={{ marginTop: 6 }}>현재: {q.q}</div>}
-      <div style={{ marginTop: 10 }}>
-        {nextLabel && <button className="go" style={{ fontSize: 20, padding: '16px 22px' }} disabled={busy} onClick={() => admin('next')}>{nextLabel}</button>}
-        {view.phase === 'draw' && <button className="go" style={{ fontSize: 20, padding: '16px 22px' }} disabled={busy}
-          onClick={() => admin('draw').catch(() => {})}>🎲 추첨 돌리기 ({view.drawn}명 뽑음)</button>}
+    <section className="panel">
+      <h2><SlidersHorizontal size={20} />진행</h2>
+      <div className="kv">
+        <span>단계<b>{phaseKo}</b></span>
+        <span>문제<b className="num">{Math.max(view.qi + 1, 0)} / {view.total_q}</b></span>
+        <span>참가<b className="num">{view.players}명</b></span>
+        {view.phase === 'q' && <span>제출<b className="num">{view.submitted}명</b></span>}
       </div>
-      {msg && <div className="err" style={{ marginTop: 8 }}>{msg}</div>}
-
-      <h3>테이블 수 (입장 전에 정하기)</h3>
-      {[3, 4, 5, 6, 8, 10, 12].map((n) => <button key={n} className={view.tables === n ? 'go' : ''} onClick={() => admin('tables', { n })}>{n}</button>)}
+      {view.question && <p className="lead" style={{ margin: '12px 0 0' }}>{view.question.q}</p>}
+      <div style={{ marginTop: 16 }}>
+        {next && <button className="go" disabled={busy} onClick={() => run('next')}>{next}<ChevronRight size={22} /></button>}
+        {view.phase === 'draw' && <button className="go" disabled={busy} onClick={() => run('draw')}><Dices size={22} />추첨 돌리기 · {view.drawn}명 뽑음</button>}
+      </div>
+      {msg && <div className="err" style={{ marginTop: 12 }}>{msg}</div>}
 
       <h3>리허설 (가상 참가자)</h3>
-      {[20, 50, 100].map((n) => <button key={n} onClick={() => admin('bots', { n })}>{n}명 채우기</button>)}
+      {[20, 50, 100].map((n) => <button key={n} className="ghost" onClick={() => run('bots', { n })}><Users size={15} style={{ verticalAlign: -2 }} /> {n}명 채우기</button>)}
 
       <h3>화면 링크</h3>
-      <div className="mute" style={{ fontSize: 14, wordBreak: 'break-all' }}>
-        참가자: {location.href.split('#')[0]}<br />스크린: <a style={{ color: 'var(--acc)' }} href="#/screen" target="_blank">{location.href.split('#')[0]}#/screen</a>
+      <div style={{ display: 'grid', gap: 6, fontSize: 15, wordBreak: 'break-all' }}>
+        <span>참가자 <a href={base} target="_blank" rel="noreferrer">{base}</a></span>
+        <span>스크린 <a href={`${base}#/screen`} target="_blank" rel="noreferrer">{base}#/screen <ExternalLink size={13} /></a></span>
       </div>
 
-      <h3>위험 구역</h3>
-      <button style={{ background: 'var(--x)' }} disabled={busy}
-        onClick={() => confirm('참가자·답안·점수를 전부 지울까요? (문항은 유지)') && admin('reset').catch(() => {})}>전체 초기화 / 개인정보 삭제</button>
-    </div>
+      <h3>초기화</h3>
+      <button className="danger" disabled={busy} onClick={() => confirm('참가자·답안·점수를 전부 지울까요? (문항은 그대로)') && run('reset')}>
+        <RotateCcw size={15} style={{ verticalAlign: -2 }} /> 전체 초기화 · 개인정보 삭제</button>
+    </section>
 
-    <div className="card">
-      <h2>📊 테이블 순위</h2>
-      {view.teams.length ? view.teams.map((t, i) => <div key={t.table_no}>{i + 1}. {t.table_no}번 ({t.n}명) — {t.avg.toLocaleString()}점</div>) : <div className="mute">아직 없음</div>}
-      <h3>개인 TOP 5</h3>
-      {view.top.map((p, i) => <div key={i}>{i + 1}. {p.name} ({p.table_no}번) — {p.score.toLocaleString()}</div>)}
+    <section className="panel">
+      <h2><ListOrdered size={20} />개인 순위 TOP 10</h2>
+      {view.ranking.length ? view.ranking.map((p) => (
+        <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>
+      )) : <p className="lead">아직 점수가 없어요</p>}
 
-      <h3>문항 편집 (대기 단계에서만)</h3>
-      <button onClick={() => admin('questions_get').then((r) => setQText(JSON.stringify(r.map(({ idx, ...x }) => x), null, 1)))}>불러오기</button>
-      <button className="go" disabled={busy || !qText} onClick={() => {
+      <h3>문항 편집 (입장 대기 단계에서만)</h3>
+      <button className="ghost" onClick={() => admin('questions_get').then((r) => setQText(JSON.stringify(r.map(({ idx, ...x }) => x), null, 1))).catch(() => {})}><Upload size={15} style={{ verticalAlign: -2 }} /> 불러오기</button>
+      <button className="ghost" disabled={busy || !qText} onClick={() => {
         let list; try { list = JSON.parse(qText) } catch { return setMsg('JSON 형식이 잘못됐어요') }
-        admin('questions', { list }).then(() => setMsg(null)).catch(() => {})
-      }}>저장</button>
-      <div className="mute" style={{ fontSize: 13, margin: '6px 0' }}>type: ox(answer 0=O,1=X) / mc(opts 4개, answer 0~3) · is_bet: true 면 직전에 베팅 단계</div>
+        run('questions', { list })
+      }}><Save size={15} style={{ verticalAlign: -2 }} /> 저장</button>
+      <p className="lead" style={{ fontSize: 13 }}>type: ox (answer 0=O, 1=X) / mc (opts 4개, answer 0~3) · is_bet: true면 그 문제 직전에 베팅</p>
       <textarea value={qText} onChange={(e) => setQText(e.target.value)} placeholder="[불러오기]를 누르세요" />
-    </div>
+    </section>
   </div>
 }

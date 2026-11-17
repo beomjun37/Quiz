@@ -68,6 +68,9 @@ create policy hq_state_read on hq_state for select using (true);
 drop policy if exists hq_players_read on hq_players;
 
 alter table hq_players add column if not exists won boolean not null default false;
+alter table hq_players add column if not exists prev_score int not null default 0;
+alter table hq_players add column if not exists prev_rank int;
+alter table hq_players add column if not exists last_gain int not null default 0;
 
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
@@ -93,15 +96,18 @@ returns int language sql immutable set search_path = public as $$
 $$;
 
 -- 참가 ----------------------------------------------------------------
-create or replace function hq_join(p_name text, p_table int)
+drop function if exists hq_join(text, int);
+-- 개인전: 닉네임만 받는다. 닉네임은 겹치면 안 된다(대소문자·공백 무시).
+create or replace function hq_join(p_name text)
 returns jsonb language plpgsql security definer set search_path = public as $$
-declare s hq_state; r hq_players;
+declare r hq_players;
 begin
-  select * into s from hq_state where id = 1;
-  p_name := btrim(coalesce(p_name, ''));
+  p_name := regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g');
   if char_length(p_name) < 1 or char_length(p_name) > 12 then raise exception 'BAD_NAME'; end if;
-  if p_table < 1 or p_table > s.tables then raise exception 'BAD_TABLE'; end if;
-  insert into hq_players (name, table_no) values (p_name, p_table) returning * into r;
+  if exists (select 1 from hq_players where lower(replace(name, ' ', '')) = lower(replace(p_name, ' ', ''))) then
+    raise exception 'NAME_TAKEN';
+  end if;
+  insert into hq_players (name, table_no) values (p_name, 0) returning * into r;
   return to_jsonb(r);
 end $$;
 
@@ -141,7 +147,7 @@ begin
 
   if p_player is not null then
     select jsonb_build_object(
-      'id', p.id, 'name', p.name, 'table_no', p.table_no, 'score', p.score,
+      'id', p.id, 'name', p.name, 'score', p.score, 'gain', p.last_gain, 'prev_rank', p.prev_rank,
       'answer', (select choice from hq_answers a where a.player_id = p.id and a.qi = s.qi),
       'bet', (select pct from hq_bets b where b.player_id = p.id),
       'rank', (select count(*) + 1 from hq_players o where o.score > p.score))
@@ -166,12 +172,12 @@ begin
     'bets', case when s.phase = 'bet' then (
         select jsonb_build_object('0', count(*) filter (where pct = 0), '50', count(*) filter (where pct = 50), '100', count(*) filter (where pct = 100)) from hq_bets) end,
     -- 팀 점수 = 응답한 적 있는 팀원 점수 평균 (인원 많은 테이블이 유리하지 않게)
-    'teams', (select coalesce(jsonb_agg(t order by t.avg desc, t.table_no), '[]') from (
-        select table_no, count(*) as n, coalesce(round(avg(score) filter (where active)), 0)::int as avg
-        from hq_players group by table_no) t),
-    'top', (select coalesce(jsonb_agg(x), '[]') from (
-        select name, table_no, score from hq_players where active order by score desc, created_at limit 5) x),
-    'winner', (select jsonb_build_object('name', name, 'table_no', table_no, 'is_me', id = p_player) from hq_players where id = s.winner_id),
+    -- 개인 순위 TOP 10 (스크린·최종 발표용). prev_rank 로 순위 변동 화살표를 그린다.
+    'ranking', (select coalesce(jsonb_agg(x order by x.rank, x.created_at), '[]') from (
+        select name, score, last_gain as gain, prev_rank, created_at,
+               rank() over (order by score desc)::int as rank
+        from hq_players where active order by score desc, created_at limit 10) x),
+    'winner', (select jsonb_build_object('name', name, 'is_me', id = p_player) from hq_players where id = s.winner_id),
     'drawn_at', s.drawn_at,
     'drawn', (select count(*) from hq_players where won),
     'spin', case when s.phase = 'draw' then (select coalesce(jsonb_agg(name), '[]') from (select name from hq_players order by random() limit 30) z) end
@@ -226,8 +232,8 @@ begin
     n := (p_arg->>'n')::int - (select count(*) from hq_players);
     for i in 1..greatest(n, 0) loop
       insert into hq_players (name, table_no, is_bot)
-      values ((array['김부장','이차장','박과장','최대리','정사원','강부장','조차장','윤과장','장대리','한팀장','오수석','서책임'])[1 + (i % 12)] || i,
-              1 + (i % s.tables), true);
+      values ((array['삼겹살킬러','노래방황제','소맥장인','막내아님','칼퇴요정','골뱅이러버','회식반장','건배사달인','엑셀고수','주말등산러','야구광','낚시왕'])[1 + (i % 12)] || (select count(*) + 1 from hq_players),
+              0, true);
     end loop;
 
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
@@ -274,6 +280,9 @@ begin
   select * into q from hq_questions where idx = s.qi;
   -- 마감 후 들어온(또는 아직 미래인 봇) 응답은 무효
   delete from hq_answers where qi = s.qi and at > least(now(), s.q_started_at + make_interval(secs => q.limit_sec + 2));
+  -- 순위 변동·이번 문제 득점 표시용 스냅샷
+  update hq_players p set prev_score = p.score, prev_rank = r.rk
+  from (select id, rank() over (order by score desc)::int rk from hq_players) r where r.id = p.id;
 
   if q.is_bet then
     -- 베팅: 맞히면 건 점수 + 문제 점수, 틀리거나 안 풀면 건 점수를 잃는다.
@@ -290,6 +299,7 @@ begin
     update hq_players p set score = p.score + hq_points(a.choice = q.answer, s.q_started_at, a.at, q.limit_sec), active = true
     from hq_answers a where a.player_id = p.id and a.qi = s.qi;
   end if;
+  update hq_players set last_gain = score - prev_score;
   update hq_state set phase = 'answer', updated_at = now() where id = 1;
 end $$;
 
@@ -300,7 +310,7 @@ do $$ begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on function hq_open_q() from anon, authenticated;
     revoke all on function hq_reveal() from anon, authenticated;
-    grant execute on function hq_join(text,int), hq_answer(uuid,int), hq_bet(uuid,int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
+    grant execute on function hq_join(text), hq_answer(uuid,int), hq_bet(uuid,int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
   end if;
 end $$;
 -- 예시 문항. 실제 행사 전에는 관리자 화면 [문항] 탭에서 바꾼다.
