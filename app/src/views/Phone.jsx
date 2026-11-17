@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
 import { errText, options } from '../lib/ui'
@@ -60,18 +60,22 @@ export default function Phone() {
 
 function Join({ view, act, msg, onJoined }) {
   const [name, setName] = useState('')
+  const ref = useRef(null)
+  const live = { lobby: '곧 시작합니다', bet: '마지막 베팅 중', q: `${view.qi + 1}번 문제 진행 중`, answer: `${view.qi + 1}번 정답 공개 중`, final: '최종 순위 발표 중', draw: '추첨 중' }[view.phase]
   return (
     <div className="phone">
       <div className="big">🍻 한잔 퀴즈</div>
-      <div className="mute">이름 쓰고, 앉은 테이블 번호만 누르면 끝!</div>
-      <input placeholder="이름 (예: 김부장)" maxLength={12} value={name} onChange={(e) => setName(e.target.value)} />
+      <div className="card" style={{ fontSize: 18 }}>📢 지금 <b style={{ color: 'var(--acc)' }}>{live}</b> · {view.players}명 참여<br /><span className="mute">입장하면 바로 이어서 참여해요</span></div>
+      <div className="mute">① 이름 쓰고 ② 앉은 테이블 번호 누르면 끝!</div>
+      <input ref={ref} autoFocus placeholder="이름 (예: 김부장)" maxLength={12} value={name} onChange={(e) => setName(e.target.value)} />
       <div className="mute">우리 테이블은?</div>
       <div className="grid3">
         {Array.from({ length: view.tables }, (_, i) => (
           <button key={i} className="opt" style={{ background: '#374151' }}
             onClick={() => act(async () => {
-              if (!name.trim()) throw new Error('BAD_NAME')
-              const r = await rpc('hq_join', { p_name: name.trim(), p_table: i + 1 })
+              const n = (ref.current?.value ?? name).trim()
+              if (!n) { ref.current?.focus(); throw new Error('BAD_NAME') }
+              const r = await rpc('hq_join', { p_name: n, p_table: i + 1 })
               onJoined(r.id)
             })}>{i + 1}번</button>
         ))}
