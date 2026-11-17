@@ -21,6 +21,7 @@ create table if not exists hq_players (
   score int not null default 0,
   active boolean not null default false,        -- 1문항 이상 응답 → 팀 평균 분모에 포함
   is_bot boolean not null default false,
+  won boolean not null default false,           -- 추첨 당첨(중복 당첨 방지)
   created_at timestamptz not null default now()
 );
 
@@ -63,8 +64,10 @@ alter table hq_bets enable row level security;
 alter table hq_config enable row level security;
 drop policy if exists hq_state_read on hq_state;
 create policy hq_state_read on hq_state for select using (true);
+-- hq_players 는 공개하지 않는다: id 가 새면 남의 답을 대신 낼 수 있다. 화면은 전부 hq_view 로 본다.
 drop policy if exists hq_players_read on hq_players;
-create policy hq_players_read on hq_players for select using (true);
+
+alter table hq_players add column if not exists won boolean not null default false;
 
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
@@ -84,7 +87,7 @@ end $$;
 
 -- 점수: 정답이면 500 + 남은시간 비율 × 500 (빨리 맞힐수록 최대 1000)
 create or replace function hq_points(p_correct boolean, p_started timestamptz, p_at timestamptz, p_limit int)
-returns int language sql immutable as $$
+returns int language sql immutable set search_path = public as $$
   select case when not p_correct then 0
     else round(500 + 500 * greatest(0, p_limit - extract(epoch from (p_at - p_started))) / p_limit)::int end
 $$;
@@ -168,8 +171,9 @@ begin
         from hq_players group by table_no) t),
     'top', (select coalesce(jsonb_agg(x), '[]') from (
         select name, table_no, score from hq_players where active order by score desc, created_at limit 5) x),
-    'winner', (select jsonb_build_object('name', name, 'table_no', table_no, 'id', id) from hq_players where id = s.winner_id),
+    'winner', (select jsonb_build_object('name', name, 'table_no', table_no, 'is_me', id = p_player) from hq_players where id = s.winner_id),
     'drawn_at', s.drawn_at,
+    'drawn', (select count(*) from hq_players where won),
     'spin', case when s.phase = 'draw' then (select coalesce(jsonb_agg(name), '[]') from (select name from hq_players order by random() limit 30) z) end
   );
   return res;
@@ -211,10 +215,9 @@ begin
 
   elsif p_action = 'draw' then                      -- 추첨은 서버가 뽑는다(조작 시비 방지). 이미 뽑힌 사람은 제외.
     update hq_state set phase = 'draw', drawn_at = now(), updated_at = now(),
-      winner_id = (select id from hq_players
-                   where id <> all(coalesce((select array_agg((x)::uuid) from jsonb_array_elements_text(p_arg->'exclude') x), '{}'))
-                   order by random() limit 1)
+      winner_id = (select id from hq_players where not won order by random() limit 1)
     where id = 1;
+    update hq_players set won = true where id = (select winner_id from hq_state where id = 1);
 
   elsif p_action = 'tables' then
     update hq_state set tables = (p_arg->>'n')::int, updated_at = now() where id = 1;
@@ -309,4 +312,4 @@ insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (3,'R
 insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (4,'R2 부장님 마음 맞히기','mc','부장님 최애 회식 안주는?','["삼겹살", "회", "치킨", "골뱅이"]'::jsonb,0,'부장님 한 말씀 부탁드립니다!',false);
 insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (5,'R2 부장님 마음 맞히기','mc','부장님 노래방 18번은 몇 년대 노래?','["80년대", "90년대", "2000년대", "최신곡"]'::jsonb,1,'2차 노래방에서 검증 예정',false);
 insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (6,'R3 올인 베팅','mc','1997년 IMF 때 국민이 모은 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 227톤", "약 500톤"]'::jsonb,2,'약 350만 명 참여',true);
-insert into hq_config (id, pin_hash) values (1, extensions.crypt('1234', extensions.gen_salt('bf'))) on conflict (id) do update set pin_hash = excluded.pin_hash;
+insert into hq_config (id, pin_hash) values (1, extensions.crypt('1234', extensions.gen_salt('bf'))) on conflict (id) do nothing;

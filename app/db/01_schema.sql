@@ -21,6 +21,7 @@ create table if not exists hq_players (
   score int not null default 0,
   active boolean not null default false,        -- 1문항 이상 응답 → 팀 평균 분모에 포함
   is_bot boolean not null default false,
+  won boolean not null default false,           -- 추첨 당첨(중복 당첨 방지)
   created_at timestamptz not null default now()
 );
 
@@ -63,8 +64,10 @@ alter table hq_bets enable row level security;
 alter table hq_config enable row level security;
 drop policy if exists hq_state_read on hq_state;
 create policy hq_state_read on hq_state for select using (true);
+-- hq_players 는 공개하지 않는다: id 가 새면 남의 답을 대신 낼 수 있다. 화면은 전부 hq_view 로 본다.
 drop policy if exists hq_players_read on hq_players;
-create policy hq_players_read on hq_players for select using (true);
+
+alter table hq_players add column if not exists won boolean not null default false;
 
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin

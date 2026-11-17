@@ -3,7 +3,7 @@
 
 -- 점수: 정답이면 500 + 남은시간 비율 × 500 (빨리 맞힐수록 최대 1000)
 create or replace function hq_points(p_correct boolean, p_started timestamptz, p_at timestamptz, p_limit int)
-returns int language sql immutable as $$
+returns int language sql immutable set search_path = public as $$
   select case when not p_correct then 0
     else round(500 + 500 * greatest(0, p_limit - extract(epoch from (p_at - p_started))) / p_limit)::int end
 $$;
@@ -87,8 +87,9 @@ begin
         from hq_players group by table_no) t),
     'top', (select coalesce(jsonb_agg(x), '[]') from (
         select name, table_no, score from hq_players where active order by score desc, created_at limit 5) x),
-    'winner', (select jsonb_build_object('name', name, 'table_no', table_no, 'id', id) from hq_players where id = s.winner_id),
+    'winner', (select jsonb_build_object('name', name, 'table_no', table_no, 'is_me', id = p_player) from hq_players where id = s.winner_id),
     'drawn_at', s.drawn_at,
+    'drawn', (select count(*) from hq_players where won),
     'spin', case when s.phase = 'draw' then (select coalesce(jsonb_agg(name), '[]') from (select name from hq_players order by random() limit 30) z) end
   );
   return res;
@@ -130,10 +131,9 @@ begin
 
   elsif p_action = 'draw' then                      -- 추첨은 서버가 뽑는다(조작 시비 방지). 이미 뽑힌 사람은 제외.
     update hq_state set phase = 'draw', drawn_at = now(), updated_at = now(),
-      winner_id = (select id from hq_players
-                   where id <> all(coalesce((select array_agg((x)::uuid) from jsonb_array_elements_text(p_arg->'exclude') x), '{}'))
-                   order by random() limit 1)
+      winner_id = (select id from hq_players where not won order by random() limit 1)
     where id = 1;
+    update hq_players set won = true where id = (select winner_id from hq_state where id = 1);
 
   elsif p_action = 'tables' then
     update hq_state set tables = (p_arg->>'n')::int, updated_at = now() where id = 1;

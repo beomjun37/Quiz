@@ -10,7 +10,6 @@ export default function Admin() {
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
   const { view, refetch } = useView(null, 2000)
-  const [winners, setWinners] = useState([])
   const [qText, setQText] = useState('')
 
   async function admin(action, arg = {}) {
@@ -43,7 +42,7 @@ export default function Admin() {
       <div style={{ marginTop: 10 }}>
         {nextLabel && <button className="go" style={{ fontSize: 20, padding: '16px 22px' }} disabled={busy} onClick={() => admin('next')}>{nextLabel}</button>}
         {view.phase === 'draw' && <button className="go" style={{ fontSize: 20, padding: '16px 22px' }} disabled={busy}
-          onClick={() => admin('draw', { exclude: winners }).then(() => refetch()).then((v) => v?.winner && setWinners((w) => [...w, v.winner.id]))}>🎲 추첨 돌리기 ({winners.length}명 뽑음)</button>}
+          onClick={() => admin('draw').catch(() => {})}>🎲 추첨 돌리기 ({view.drawn}명 뽑음)</button>}
       </div>
       {msg && <div className="err" style={{ marginTop: 8 }}>{msg}</div>}
 
@@ -60,7 +59,7 @@ export default function Admin() {
 
       <h3>위험 구역</h3>
       <button style={{ background: 'var(--x)' }} disabled={busy}
-        onClick={() => confirm('참가자·답안·점수를 전부 지울까요? (문항은 유지)') && admin('reset').then(() => setWinners([]))}>전체 초기화 / 개인정보 삭제</button>
+        onClick={() => confirm('참가자·답안·점수를 전부 지울까요? (문항은 유지)') && admin('reset').catch(() => {})}>전체 초기화 / 개인정보 삭제</button>
     </div>
 
     <div className="card">

@@ -52,7 +52,7 @@ export default function Phone() {
       return wrap(<><div className="card big pop">우리 테이블 {r}위!</div><div className="mute">곧 행운의 추첨이 시작됩니다 🎁</div></>)
     }
     case 'draw':
-      return wrap(<div className="card big">{!view.winner ? '두근두근 추첨 대기 중…' : view.winner.id === me.id ? '🎉 당첨! 앞으로 나와 주세요' : `당첨: ${view.winner.name} 님`}</div>)
+      return wrap(<div className="card big">{!view.winner ? '두근두근 추첨 대기 중…' : view.winner.is_me ? '🎉 당첨! 앞으로 나와 주세요' : `당첨: ${view.winner.name} 님`}</div>)
     default:
       return wrap(null)
   }
