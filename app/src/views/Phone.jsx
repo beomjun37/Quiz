@@ -30,12 +30,16 @@ export default function Phone() {
       <p className="title">한잔 퀴즈</p><p className="lead">{error ? '연결 중이에요…' : '불러오는 중…'}</p></div></div>
   )
 
-  if (!pid) return <Join view={view} act={act} msg={msg || (kicked ? '진행자가 게임을 새로 준비했어요. 닉네임으로 다시 들어와 주세요' : null)} busy={busy} onJoined={(id) => { store(id); setPid(id) }} />
+  if (!pid) return <Join view={view} act={act} msg={msg || (kicked ? '새 게임이 시작됐어요. 닉네임을 입력하고 다시 들어와 주세요' : null)} busy={busy} onJoined={(id) => { store(id); setPid(id) }} />
 
   const me = view.me
   if (!me) return <Waiting icon={<Beer size={38} />} title="입장하는 중…" text="잠시만요" />
   const body = {
-    lobby: <Waiting icon={<Beer size={38} />} title="입장 완료!" text="잔 채우고 잠시만 기다려 주세요. 곧 첫 문제가 열려요." />,
+    lobby: <>
+      <Waiting icon={<Beer size={38} />} title="입장 완료!" text="잔 채우고 잠시만 기다려 주세요. 곧 첫 문제가 열려요." />
+      <button className="lead" style={{ textDecoration: 'underline', textUnderlineOffset: 4, padding: 12 }} disabled={busy}
+        onClick={() => act(async () => { await rpc('hq_leave', { p_player: me.id }); store(null); setPid(null) })}>닉네임 바꾸기</button>
+    </>,
     bet: <Bet me={me} act={act} busy={busy} />,
     q: <Question view={view} me={me} act={act} busy={busy} />,
     answer: <Result view={view} me={me} />,
