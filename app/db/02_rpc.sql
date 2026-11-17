@@ -11,16 +11,22 @@ $$;
 -- 참가 ----------------------------------------------------------------
 drop function if exists hq_join(text, int);
 -- 개인전: 닉네임만 받는다. 닉네임은 겹치면 안 된다(대소문자·공백 무시).
-create or replace function hq_join(p_name text)
+drop function if exists hq_join(text);
+-- p_id: 폰이 미리 만든 id. 통신이 끊겨 같은 요청이 다시 와도 같은 사람으로 처리한다.
+create or replace function hq_join(p_name text, p_id uuid default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare r hq_players;
 begin
+  if p_id is not null then
+    select * into r from hq_players where id = p_id;
+    if found then return to_jsonb(r); end if;
+  end if;
   p_name := regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g');
   if char_length(p_name) < 1 or char_length(p_name) > 12 then raise exception 'BAD_NAME'; end if;
   if exists (select 1 from hq_players where lower(replace(name, ' ', '')) = lower(replace(p_name, ' ', ''))) then
     raise exception 'NAME_TAKEN';
   end if;
-  insert into hq_players (name, table_no) values (p_name, 0) returning * into r;
+  insert into hq_players (id, name, table_no) values (coalesce(p_id, gen_random_uuid()), p_name, 0) returning * into r;
   return to_jsonb(r);
 end $$;
 
@@ -112,6 +118,10 @@ begin
     return jsonb_build_object('ok', true);
 
   elsif p_action = 'next' then                      -- 진행 버튼 하나로 다음 단계
+    -- 재전송·연타 대비: 버튼을 누를 때 보던 단계와 지금 단계가 다르면 이미 처리된 요청이다.
+    if p_arg ? 'from_phase' and (p_arg->>'from_phase' <> s.phase or (p_arg->>'from_qi')::int <> s.qi) then
+      return jsonb_build_object('ok', true, 'skipped', true);
+    end if;
     select * into nq from hq_questions where idx = s.qi + 1;
     if s.phase in ('lobby', 'answer') then
       if nq.idx is null then
@@ -228,6 +238,6 @@ do $$ begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on function hq_open_q() from anon, authenticated;
     revoke all on function hq_reveal() from anon, authenticated;
-    grant execute on function hq_join(text), hq_answer(uuid,int), hq_bet(uuid,int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
+    grant execute on function hq_join(text, uuid), hq_answer(uuid,int), hq_bet(uuid,int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
   end if;
 end $$;

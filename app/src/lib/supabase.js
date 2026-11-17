@@ -9,9 +9,26 @@ export const supabase = createClient(url, key, {
   realtime: { params: { eventsPerSecond: 10 } },
 })
 
-/** RPC 호출. 에러 메시지(BAD_PIN, TOO_LATE 등)를 그대로 던진다. */
-export async function rpc(fn, args) {
-  const { data, error } = await supabase.rpc(fn, args)
-  if (error) throw new Error(error.message)
-  return data
+const NETWORK = /fetch|network|load failed|timeout|aborted|connection/i
+
+/**
+ * RPC 호출. 서버가 거절한 에러(BAD_PIN, TOO_LATE 등)는 그대로 던지고,
+ * 통신이 끊긴 경우(탭 전환, 와이파이·5G 순간 끊김)는 최대 4번까지 다시 보낸다.
+ * 다시 보내도 안전하도록 서버 쪽 동작은 전부 중복 실행에 안전하게 만들어 뒀다.
+ */
+export async function rpc(fn, args, { retry = true } = {}) {
+  let last
+  for (let i = 0; i < (retry ? 4 : 1); i++) {
+    if (i) await new Promise((r) => setTimeout(r, 400 * 2 ** (i - 1)))
+    try {
+      const { data, error } = await supabase.rpc(fn, args)
+      if (!error) return data
+      if (!NETWORK.test(error.message) || error.code) throw new Error(error.message)
+      last = new Error(error.message)
+    } catch (e) {
+      if (!NETWORK.test(e.message)) throw e
+      last = e
+    }
+  }
+  throw last
 }
