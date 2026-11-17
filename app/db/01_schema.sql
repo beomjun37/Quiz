@@ -68,6 +68,9 @@ create policy hq_state_read on hq_state for select using (true);
 drop policy if exists hq_players_read on hq_players;
 
 alter table hq_players add column if not exists won boolean not null default false;
+alter table hq_players add column if not exists prev_score int not null default 0;
+alter table hq_players add column if not exists prev_rank int;
+alter table hq_players add column if not exists last_gain int not null default 0;
 
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin

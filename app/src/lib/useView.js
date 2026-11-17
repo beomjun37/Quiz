@@ -16,8 +16,11 @@ export function useView(playerId, pollMs = 3000) {
 
   const refetch = useCallback(async () => {
     try {
-      const v = await rpc('hq_view', { p_player: idRef.current ?? null })
+      const asked = idRef.current ?? null
+      const v = await rpc('hq_view', { p_player: asked })
       noteServerTime(v.server_now)
+      if (asked !== (idRef.current ?? null)) return // 그 사이 입장/퇴장했으면 낡은 응답은 버린다
+      v._for = asked
       setView(v); setError(null)
       return v
     } catch (e) { setError(e.message) }
