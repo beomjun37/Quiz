@@ -16,7 +16,7 @@ export default function Admin() {
   async function admin(action, arg = {}) {
     setBusy(true); setMsg(null)
     try { const r = await rpc('hq_admin', { p_pin: pin, p_action: action, p_arg: arg }); await refetch(); return r }
-    catch (e) { setMsg(errText(e.message)); throw e } finally { setBusy(false) }
+    catch (e) { setMsg(`${errText(e.message)} (${e.message})`); throw e } finally { setBusy(false) }
   }
   const run = (action, arg) => admin(action, arg).catch(() => {})
 
@@ -50,7 +50,7 @@ export default function Admin() {
       </div>
       {view.question && <p className="lead" style={{ margin: '12px 0 0' }}>{view.question.q}</p>}
       <div style={{ marginTop: 16 }}>
-        {next && <button className="go" disabled={busy} onClick={() => run('next')}>{next}<ChevronRight size={22} /></button>}
+        {next && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
         {view.phase === 'draw' && <button className="go" disabled={busy} onClick={() => run('draw')}><Dices size={22} />추첨 돌리기 · {view.drawn}명 뽑음</button>}
       </div>
       {msg && <div className="err" style={{ marginTop: 12 }}>{msg}</div>}

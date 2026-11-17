@@ -64,6 +64,7 @@ function Waiting({ icon, title, text }) {
 function Join({ view, act, msg, busy, onJoined }) {
   const [name, setName] = useState('')
   const ref = useRef(null)
+  const joinId = useRef(crypto.randomUUID())
   const live = { lobby: '곧 시작해요', bet: '마지막 베팅 중', q: `${view.qi + 1}번 문제 푸는 중`, answer: `${view.qi + 1}번 정답 공개 중`, final: '최종 순위 발표 중', draw: '경품 추첨 중' }[view.phase]
 
   function submit(e) {
@@ -72,7 +73,7 @@ function Join({ view, act, msg, busy, onJoined }) {
       // 한글 조합 중에 눌러도 비지 않게 입력창 값을 직접 읽는다
       const n = (ref.current?.value ?? name).trim()
       if (!n) { ref.current?.focus(); throw new Error('BAD_NAME') }
-      const r = await rpc('hq_join', { p_name: n })
+      const r = await rpc('hq_join', { p_name: n, p_id: joinId.current })
       onJoined(r.id)
     })
   }
