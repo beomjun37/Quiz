@@ -140,6 +140,15 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
+-- 시작 전(대기 단계)에만 스스로 나갈 수 있다 — 닉네임 바꾸기용
+create or replace function hq_leave(p_player uuid)
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  if (select phase from hq_state where id = 1) <> 'lobby' then raise exception 'NOT_LOBBY'; end if;
+  delete from hq_players where id = p_player;
+  return jsonb_build_object('ok', true);
+end $$;
+
 -- 조회 (폰·스크린·관리자 공용) ----------------------------------------
 -- 정답·해설·분포는 phase='answer' 이후에만 실린다. 봇 응답은 at 이 미래일 수 있어 at<=now() 만 센다.
 create or replace function hq_view(p_player uuid default null)
@@ -325,7 +334,7 @@ do $$ begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     revoke all on function hq_open_q() from anon, authenticated;
     revoke all on function hq_reveal() from anon, authenticated;
-    grant execute on function hq_join(text, uuid), hq_answer(uuid,int), hq_bet(uuid,int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
+    grant execute on function hq_join(text, uuid), hq_leave(uuid), hq_answer(uuid,int), hq_bet(uuid,int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
   end if;
 end $$;
 -- 예시 문항. 실제 행사 전에는 관리자 화면 [문항] 탭에서 바꾼다.
