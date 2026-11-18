@@ -217,6 +217,16 @@ svg { flex-shrink: 0; }
 .admin-timer span { font-size: 14px; color: var(--mute); }
 .admin-timer.hurry b { color: var(--x); } .admin-timer.hurry .bar i { background: var(--x); }
 .admin-timer.over { border-color: var(--x); } .admin-timer.over span { color: #ffb3b5; font-weight: 700; }
+.host { display: grid; gap: 10px; margin-top: 14px; }
+.host-say { display: flex; gap: 10px; background: rgb(255 181 71 / 0.1); border: 1px solid rgb(255 181 71 / 0.35); border-radius: 14px; padding: 14px 16px; }
+.host-say svg { color: var(--beer); margin-top: 3px; }
+.host-say p { margin: 0; font-size: 17px; line-height: 1.55; }
+.host-ans { display: flex; gap: 8px; align-items: center; font-size: 16px; color: var(--mute); }
+.host-ans b { color: var(--soju); font-size: 20px; }
+.host-next { border: 1px dashed var(--line); border-radius: 12px; padding: 10px 14px; }
+.host-next small { color: var(--mute); } .host-next p { margin: 4px 0; font-weight: 700; }
+.host-next span { display: inline-flex; gap: 6px; align-items: center; color: var(--soju); font-size: 14px; font-weight: 700; }
+.bet-explain p { margin: 0; font-size: 16px; } .bet-explain p + p { margin-top: 8px; color: var(--mute); }
 .mini { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 
 @media (max-width: 860px) {

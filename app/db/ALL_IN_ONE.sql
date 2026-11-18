@@ -77,6 +77,8 @@ alter table hq_players add column if not exists card text;                      
 alter table hq_players add column if not exists card_qi int;                             -- 카드를 쓴 문제
 alter table hq_players add column if not exists card_hide jsonb;                         -- 50:50 으로 지운 보기
 
+alter table hq_questions add column if not exists host text not null default '';  -- 진행자 멘트(선택)
+
 -- 투표형(정답 없음) 문항 허용
 alter table hq_questions alter column answer drop not null;
 alter table hq_questions drop constraint if exists hq_questions_type_check;
@@ -322,9 +324,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15)
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', '')
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
 
@@ -349,6 +351,13 @@ begin
   elsif p_action = 'reset' then                     -- 새 게임 / 행사 후 개인정보 삭제
     delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_id = null, drawn_at = null, updated_at = now() where id = 1;
+
+  elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
+    return jsonb_build_object(
+      'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'note', note, 'host', host) from hq_questions where idx = s.qi),
+      'next', (select jsonb_build_object('idx', idx, 'q', q, 'type', type, 'opts', opts, 'answer', answer, 'host', host, 'is_bet', is_bet)
+               from hq_questions where idx = s.qi + 1),
+      'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));
 
   elsif p_action = 'questions_get' then
     return (select coalesce(jsonb_agg(to_jsonb(x) order by idx), '[]') from hq_questions x);
@@ -442,12 +451,12 @@ do $$ begin
 end $$;
 -- 예시 문항. 실제 행사 전에는 진행자 화면 [문항 편집]에서 바꾼다.
 delete from hq_questions where true;
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (0,'R1 추억 소환','ox','2002 월드컵에서 한국은 4강에 올랐다.','[]'::jsonb,0,'4강 신화! 그날 어디서 보셨어요?',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (1,'R1 추억 소환','mc','스타크래프트에서 "Show me the money"를 치면?','["유닛 무적", "자원 1만", "맵 전체 보기", "건설 즉시 완료"]'::jsonb,1,'PC방 시간당 1,000원이던 시절',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (2,'R1 추억 소환','mc','삐삐 숫자 "8282"의 뜻은?','["사랑해", "빨리빨리", "잘자", "보고싶어"]'::jsonb,1,'"1004"는 천사, "486"은 사랑해',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (3,'R1 추억 소환','ox','싸이월드 화폐 이름은 "도토리"였다.','[]'::jsonb,0,'BGM 사려고 도토리 충전하셨죠?',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (4,'R2 부장님 마음 맞히기','mc','부장님 최애 회식 안주는?','["삼겹살", "회", "치킨", "골뱅이"]'::jsonb,0,'부장님 한 말씀 부탁드립니다!',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (5,'R2 부장님 마음 맞히기','mc','부장님 노래방 18번은 몇 년대 노래?','["80년대", "90년대", "2000년대", "최신곡"]'::jsonb,1,'2차 노래방에서 검증 예정',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (6,'쉬어가기 투표','poll','오늘 2차, 어디로 갈까요?','["노래방", "호프", "포장마차", "집에 갑니다"]'::jsonb,null,'점수와 상관없는 투표예요',false);
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet) values (7,'R3 올인 베팅','mc','1997년 IMF 때 국민이 모은 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 227톤", "약 500톤"]'::jsonb,2,'약 350만 명 참여',true);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (0,'R1 추억 소환','ox','2002 월드컵에서 한국은 4강에 올랐다.','[]'::jsonb,0,'4강 신화! 그날 어디서 보셨어요?',false,'자, 첫 문제는 몸풀기! 2002년 그 여름 기억나시죠? 빨리 누를수록 점수가 높습니다!');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (1,'R1 추억 소환','mc','스타크래프트에서 "Show me the money"를 치면?','["유닛 무적", "자원 1만", "맵 전체 보기", "건설 즉시 완료"]'::jsonb,1,'PC방 시간당 1,000원이던 시절',false,'PC방 좀 다녀 보신 분들은 바로 아실 겁니다. 부장님도 아실까요?');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (2,'R1 추억 소환','mc','삐삐 숫자 "8282"의 뜻은?','["사랑해", "빨리빨리", "잘자", "보고싶어"]'::jsonb,1,'"1004"는 천사, "486"은 사랑해',false,'삐삐 세대 손! 이건 손이 먼저 기억할 거예요.');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (3,'R1 추억 소환','ox','싸이월드 화폐 이름은 "도토리"였다.','[]'::jsonb,0,'BGM 사려고 도토리 충전하셨죠?',false,'싸이월드 미니홈피 BGM, 다들 하나씩 있었잖아요?');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (4,'R2 부장님 마음 맞히기','mc','부장님 최애 회식 안주는?','["삼겹살", "회", "치킨", "골뱅이"]'::jsonb,0,'부장님 한 말씀 부탁드립니다!',false,'이제 진짜 문제입니다. 부장님 마음을 맞혀 보세요. 부장님은 표정 관리 부탁드려요!');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (5,'R2 부장님 마음 맞히기','mc','부장님 노래방 18번은 몇 년대 노래?','["80년대", "90년대", "2000년대", "최신곡"]'::jsonb,1,'2차 노래방에서 검증 예정',false,'부장님 18번, 2차 노래방에서 실제로 검증합니다. 신중하게!');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (6,'쉬어가기 투표','poll','오늘 2차, 어디로 갈까요?','["노래방", "호프", "포장마차", "집에 갑니다"]'::jsonb,null,'점수와 상관없는 투표예요',false,'잠깐 쉬어 갑니다. 점수와 상관없는 투표예요. 오늘 2차, 여러분이 정합니다!');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,host) values (7,'R3 올인 베팅','mc','1997년 IMF 때 국민이 모은 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 227톤", "약 500톤"]'::jsonb,2,'약 350만 명 참여',true,'마지막 문제! 지금까지 모은 점수를 걸고 역전을 노려 보세요.');
 insert into hq_config (id, pin_hash) values (1, extensions.crypt('1234', extensions.gen_salt('bf'))) on conflict (id) do nothing;

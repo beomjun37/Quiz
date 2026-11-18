@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ChevronRight, Dices, Copy, ImagePlus, ListOrdered, Trash2, Lock, RotateCcw, Save, SlidersHorizontal, Upload, Users } from 'lucide-react'
+import { ChevronRight, Dices, Copy, ImagePlus, ListOrdered, Trash2, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Upload, Users } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt } from '../lib/ui'
+import { errText, fmt, options } from '../lib/ui'
 
 // 진행자 노트북용. 권한은 서버(hq_admin)가 PIN으로 매번 검증한다. URL이 새도 조작 불가.
 export default function Admin() {
@@ -49,7 +49,7 @@ export default function Admin() {
         {view.phase === 'q' && <span>제출<b className="num">{view.submitted} / {view.players}명</b></span>}
       </div>
       {view.phase === 'q' && view.question && <AdminTimer view={view} />}
-      {view.question && <p className="lead" style={{ margin: '12px 0 0' }}>{view.question.q}</p>}
+      <HostCard view={view} admin={admin} />
       <div style={{ marginTop: 16 }}>
         {next && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
         {view.phase === 'draw' && <button className="go" disabled={busy} onClick={() => run('draw')}><Dices size={22} />행운상 뽑기 · {view.drawn}명 뽑음</button>}
@@ -149,5 +149,51 @@ function AdminTimer({ view }) {
     <b className="num">{left > 0 ? sec : 0}<small>초</small></b>
     <div className="bar"><i style={{ width: `${(left / q.limit_sec) * 100}%` }} /></div>
     <span>{left <= 0 ? '시간 끝! 정답 공개를 눌러 주세요' : all ? '전원 제출 완료. 바로 공개해도 돼요' : `${q.limit_sec}초 중 남은 시간`}</span>
+  </div>
+}
+
+// 진행자 카드: 지금 단계에서 읽을 멘트 + 정답(참가자보다 먼저) + 다음 문제 미리보기
+function HostCard({ view, admin }) {
+  const [cur, setCur] = useState(null)
+  useEffect(() => { admin('current').then(setCur).catch(() => {}) }, [view.phase, view.qi]) // eslint-disable-line
+  const q = view.question
+  const label = (qq, a) => (a == null ? '정답 없음 (투표)' : options(qq)[a]?.[0])
+  const top = view.ranking
+  const nx = cur?.next
+  const correct = q && view.dist && q.answer != null ? view.dist[q.answer] : null
+
+  let say
+  switch (view.phase) {
+    case 'lobby':
+      say = `단톡방 링크로 들어와서 닉네임만 쓰면 입장입니다! 지금 ${view.players}명 들어왔어요. 빨리 맞힐수록 점수가 높고, 3연속 맞히면 보너스, 찬스 카드는 한 게임에 딱 한 장입니다. 그럼 시작합니다!`
+      break
+    case 'q':
+      say = cur?.now?.host || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
+      break
+    case 'answer':
+      say = q.type === 'poll'
+        ? `투표 결과 나왔습니다! 1등은 '${options(q)[view.dist.indexOf(Math.max(...view.dist))][0]}'! ${q.note || ''}`
+        : `정답은 '${label(q, q.answer)}'! ${correct}명이 맞혔습니다. ${q.note || ''} 지금 1등은 ${top[0]?.name ?? '-'}님!`
+      break
+    case 'bet':
+      say = '마지막 문제 전에 베팅 시간입니다! 지금 내 점수를 0%, 50%, 100% 중에 걸 수 있어요. 맞히면 건 만큼 더 받고, 틀리면 건 만큼 잃습니다. 하위권은 올인하면 역전도 가능합니다!'
+      break
+    case 'final':
+      say = `최종 결과! 1등 ${top[0]?.name ?? '-'}님, 2등 ${top[1]?.name ?? '-'}님, 3등 ${top[2]?.name ?? '-'}님! 상품 받으러 나와 주세요. 아직 안 끝났습니다, 4등부터는 행운상 추첨이 남았어요!`
+      break
+    case 'draw':
+      say = '4등부터 꼴찌까지 모두 대상입니다. 폰 화면 보세요, 두근두근!'
+      break
+  }
+
+  return <div className="host">
+    <div className="host-say"><Mic size={18} /><p>{say}</p></div>
+    {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
+      정답 <b>{label(q, cur.now.answer)}</b>{cur.now.note && <span> · {cur.now.note}</span>}</div>}
+    {nx && ['lobby', 'answer', 'bet'].includes(view.phase) && <div className="host-next">
+      <small>다음 {nx.idx + 1}번{nx.is_bet ? ' (베팅 문제)' : ''}</small>
+      <p>{nx.q}</p>
+      <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
+    </div>}
   </div>
 }
