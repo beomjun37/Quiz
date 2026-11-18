@@ -14,7 +14,7 @@ export default function Screen() {
     case 'bet': return <BetBoard view={view} />
     case 'q': case 'answer': return <QBoard view={view} />
     case 'final': return <Final view={view} />
-    case 'draw': return <Draw view={view} />
+    case 'draw': case 'end': return <Draw view={view} />
     default: return null
   }
 }
@@ -105,7 +105,8 @@ function Final({ view }) {
 }
 
 // 서버가 뽑은 당첨자를 3초간 이름 룰렛으로 돌린 뒤 공개
-function Draw({ view }) {
+function Draw({ view: v }) {
+  const view = { ...v, winner: v.winners?.[0] ?? null }
   const [shown, setShown] = useState(null)
   useEffect(() => {
     if (!view.winner) { setShown(null); return }

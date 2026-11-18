@@ -34,9 +34,9 @@ export default function Admin() {
   const next = {
     lobby: view.next_is_bet ? '베팅 열기' : '1번 문제 열기',
     answer: last ? '최종 순위 공개' : view.next_is_bet ? '마지막 베팅 열기' : `${view.qi + 2}번 문제 열기`,
-    bet: '베팅 마감 · 마지막 문제', q: '정답 공개', final: '행운상 추첨으로', draw: null,
+    bet: '베팅 마감 · 마지막 문제', q: '정답 공개', final: '행운상 추첨으로', draw: '마무리 화면으로', end: null,
   }[view.phase]
-  const phaseKo = { lobby: '입장 대기', bet: '베팅 중', q: '문제 푸는 중', answer: '정답 공개됨', final: '최종 순위', draw: '행운상 추첨' }[view.phase]
+  const phaseKo = { lobby: '입장 대기', bet: '베팅 중', q: '문제 푸는 중', answer: '정답 공개됨', final: '최종 순위', draw: '행운상 추첨', end: '마무리' }[view.phase]
   const base = location.href.split('#')[0]
 
   return <div className="admin">
@@ -51,9 +51,9 @@ export default function Admin() {
       {view.phase === 'q' && view.question && <AdminTimer view={view} />}
       <HostCard view={view} admin={admin} />
       <div style={{ marginTop: 16 }}>
-        {next && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
-        {view.phase === 'draw' && <button className="go" disabled={busy} onClick={() => run('draw')}><Dices size={22} />행운상 뽑기 · {view.drawn}명 뽑음</button>}
-        {view.phase === 'draw' && <p className="lead" style={{ fontSize: 14 }}>1~3등을 뺀 나머지에서 뽑아요. 누를 때마다 한 명씩.</p>}
+        {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
+        {view.phase === 'draw' && <DrawControl view={view} run={run} busy={busy} />}
+        {view.phase === 'end' && <EndControl view={view} run={run} busy={busy} />}
       </div>
       {msg && <div className="err" style={{ marginTop: 12 }}>{msg}</div>}
 
@@ -184,6 +184,9 @@ function HostCard({ view, admin }) {
     case 'draw':
       say = '4등부터 꼴찌까지 모두 대상입니다. 폰 화면 보세요, 두근두근!'
       break
+    case 'end':
+      say = `오늘 ${view.players}명 모두 수고 많으셨습니다! 폰에 각자 오늘 기록이 떠 있으니 캡처해서 단톡방에 올려 주세요. 다 같이 건배하고 마무리하겠습니다. 건배!`
+      break
   }
 
   return <div className="host">
@@ -195,5 +198,33 @@ function HostCard({ view, admin }) {
       <p>{nx.q}</p>
       <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
     </div>}
+  </div>
+}
+
+// 행운상: 몇 명 뽑을지 고르고 한 번에 뽑는다. 여러 번 눌러도 이미 뽑힌 사람은 빠진다.
+function DrawControl({ view, run, busy }) {
+  const [n, setN] = useState(1)
+  return <div className="draw-ctl">
+    <div className="stepper">
+      <button type="button" onClick={() => setN((v) => Math.max(1, v - 1))} aria-label="줄이기">−</button>
+      <b className="num">{n}명</b>
+      <button type="button" onClick={() => setN((v) => Math.min(20, v + 1))} aria-label="늘리기">+</button>
+    </div>
+    <button className="go" disabled={busy} onClick={() => run('draw', { n })}><Dices size={22} />{n}명 뽑기</button>
+    <p className="lead" style={{ fontSize: 14, width: '100%' }}>1~3등과 이미 뽑힌 사람은 빼고 뽑아요. 지금까지 {view.drawn}명 당첨.
+      {(view.winners ?? []).length > 0 && <> 방금: <b style={{ color: 'var(--fg)' }}>{view.winners.map((w) => w.name).join(', ')}</b></>}</p>
+    <button className="go" style={{ background: 'var(--ink-3)', color: 'var(--fg)' }} disabled={busy}
+      onClick={() => run('next', { from_phase: 'draw', from_qi: view.qi })}>마무리 화면으로<ChevronRight size={22} /></button>
+  </div>
+}
+
+// 마무리 화면의 인사말은 진행자가 바꿀 수 있다.
+function EndControl({ view, run, busy }) {
+  const [msg, setMsgText] = useState(view.end_msg ?? '')
+  return <div style={{ display: 'grid', gap: 8 }}>
+    <p className="lead" style={{ margin: 0 }}>참가자 폰에 마무리 화면(수상자 + 개인 기록)이 떠 있어요.</p>
+    <label style={{ fontSize: 14, color: 'var(--mute)' }}>마무리 인사말</label>
+    <input value={msg} maxLength={120} onChange={(e) => setMsgText(e.target.value)} style={{ margin: 0 }} />
+    <button className="ghost" disabled={busy} onClick={() => run('end_msg', { msg })}><Save size={15} style={{ verticalAlign: -2 }} /> 인사말 바꾸기</button>
   </div>
 }

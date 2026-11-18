@@ -79,6 +79,10 @@ alter table hq_players add column if not exists card_hide jsonb;                
 
 alter table hq_questions add column if not exists host text not null default '';  -- 진행자 멘트(선택)
 
+alter table hq_players add column if not exists max_streak int not null default 0;   -- 최고 연속 정답
+alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
+alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 2차에서 만나요';
+
 -- 투표형(정답 없음) 문항 허용
 alter table hq_questions alter column answer drop not null;
 alter table hq_questions drop constraint if exists hq_questions_type_check;
