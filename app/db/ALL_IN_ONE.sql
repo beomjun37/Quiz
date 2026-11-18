@@ -79,6 +79,10 @@ alter table hq_players add column if not exists card_hide jsonb;                
 
 alter table hq_questions add column if not exists host text not null default '';  -- 진행자 멘트(선택)
 
+alter table hq_players add column if not exists max_streak int not null default 0;   -- 최고 연속 정답
+alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
+alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 2차에서 만나요';
+
 -- 투표형(정답 없음) 문항 허용
 alter table hq_questions alter column answer drop not null;
 alter table hq_questions drop constraint if exists hq_questions_type_check;
@@ -230,7 +234,9 @@ begin
       'double_now', p.card = 'double' and p.card_qi = s.qi,
       'answer', (select choice from hq_answers a where a.player_id = p.id and a.qi = s.qi and a.at <= now()),
       'bet', (select pct from hq_bets b where b.player_id = p.id),
-      'won', p.won,
+      'won', p.won, 'max_streak', p.max_streak,
+      'correct', (select count(*) from hq_answers a join hq_questions qq on qq.idx = a.qi
+                  where a.player_id = p.id and qq.type <> 'poll' and a.choice = qq.answer and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
       'rank', (select count(*) + 1 from hq_players o where o.score > p.score))
     into me from hq_players p where p.id = p_player;
   end if;
@@ -258,7 +264,13 @@ begin
         select name, score, last_gain as gain, prev_rank, streak, created_at, id = p_player as is_me,
                rank() over (order by score desc)::int as rank
         from hq_players where active order by score desc, created_at limit 10) x),
-    'winner', (select jsonb_build_object('name', name, 'is_me', id = p_player) from hq_players where id = s.winner_id),
+    'winners', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'is_me', id = p_player)), '[]') from hq_players where id = any(s.winner_ids)),
+    'lucky_all', case when s.phase in ('draw','end') then (select coalesce(jsonb_agg(name order by name), '[]') from hq_players where won) end,
+    'end_msg', s.end_msg,
+    'end_stats', case when s.phase = 'end' then jsonb_build_object(
+        'streak_king', (select jsonb_build_object('name', name, 'n', max_streak) from hq_players where max_streak > 0 order by max_streak desc, score desc limit 1),
+        'questions', (select count(*) from hq_questions where type <> 'poll'),
+        'answers', (select count(*) from hq_answers)) end,
     'drawn_at', s.drawn_at,
     'drawn', (select count(*) from hq_players where won),
     'spin', case when s.phase = 'draw' then (select coalesce(jsonb_agg(name), '[]') from (select name from hq_players order by random() limit 30) z) end
@@ -300,18 +312,23 @@ begin
     elsif s.phase = 'q' then
       perform hq_reveal();
     elsif s.phase = 'final' then
-      update hq_state set phase = 'draw', winner_id = null, drawn_at = null, updated_at = now() where id = 1;
+      update hq_state set phase = 'draw', winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
+    elsif s.phase = 'draw' then
+      update hq_state set phase = 'end', updated_at = now() where id = 1;
     end if;
 
   elsif p_action = 'draw' then
-    -- 행운상: 1~3등(순위 상품 대상)은 빼고, 이미 뽑힌 사람도 뺀 나머지에서 서버가 무작위로 뽑는다.
+    -- 행운상: 1~3등(순위 상품 대상)과 이미 뽑힌 사람을 빼고, 서버가 n명을 한 번에 무작위로 뽑는다.
+    n := least(greatest(coalesce((p_arg->>'n')::int, 1), 1), 20);
     update hq_state set phase = 'draw', drawn_at = now(), updated_at = now(),
-      winner_id = coalesce(
-        (select id from (select id, won, rank() over (order by score desc) rk from hq_players) r
-         where not won and rk > 3 order by random() limit 1),
-        (select id from hq_players where not won order by random() limit 1))
+      winner_ids = coalesce((select array_agg(id) from (
+        select id from (select id, won, rank() over (order by score desc) rk from hq_players) r
+        where not won and rk > 3 order by random() limit n) z), '{}')
     where id = 1;
-    update hq_players set won = true where id = (select winner_id from hq_state where id = 1);
+    update hq_players set won = true where id = any(select unnest(winner_ids) from hq_state where id = 1);
+
+  elsif p_action = 'end_msg' then
+    update hq_state set end_msg = left(coalesce(p_arg->>'msg', ''), 120), updated_at = now() where id = 1;
 
   elsif p_action = 'bots' then                      -- 리허설용 가상 참가자
     n := (p_arg->>'n')::int - (select count(*) from hq_players);
@@ -345,12 +362,12 @@ begin
   elsif p_action = 'restart' then                   -- 한 판 더: 참가자는 그대로, 점수·답안·베팅·카드·추첨만 비운다. 가상 참가자는 뺀다.
     delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where is_bot;
     update hq_players set score = 0, active = false, won = false, prev_score = 0, prev_rank = null, last_gain = 0,
-      streak = 0, last_bonus = '{}', card = null, card_qi = null, card_hide = null where true;
-    update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_id = null, drawn_at = null, updated_at = now() where id = 1;
+      streak = 0, max_streak = 0, last_bonus = '{}', card = null, card_qi = null, card_hide = null where true;
+    update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'reset' then                     -- 새 게임 / 행사 후 개인정보 삭제
     delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where true;
-    update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_id = null, drawn_at = null, updated_at = now() where id = 1;
+    update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
     return jsonb_build_object(
@@ -411,6 +428,7 @@ begin
     update hq_players p set
       score = p.score + c.base + c.dbl + c.under + c.combo + c.bet,
       streak = case when c.correct then p.streak + 1 else 0 end,
+      max_streak = greatest(p.max_streak, case when c.correct then p.streak + 1 else 0 end),
       active = p.active or c.answered,
       last_bonus = jsonb_strip_nulls(jsonb_build_object(
         'double', nullif(c.dbl, 0), 'underdog', nullif(c.under, 0), 'combo', nullif(c.combo, 0),

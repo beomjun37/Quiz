@@ -53,6 +53,7 @@ export default function Phone() {
     answer: <Result view={view} me={me} />,
     final: <Final view={view} me={me} />,
     draw: <Draw view={view} />,
+    end: <End view={view} me={me} />,
   }[view.phase]
 
   return (
@@ -78,7 +79,7 @@ function Join({ view, act, msg, busy, onJoined }) {
   const [name, setName] = useState('')
   const ref = useRef(null)
   const joinId = useRef(crypto.randomUUID())
-  const live = { lobby: '곧 시작해요', bet: '마지막 베팅 중', q: `${view.qi + 1}번 문제 푸는 중`, answer: `${view.qi + 1}번 정답 공개 중`, final: '최종 순위 발표 중', draw: '행운상 추첨 중' }[view.phase]
+  const live = { lobby: '곧 시작해요', bet: '마지막 베팅 중', q: `${view.qi + 1}번 문제 푸는 중`, answer: `${view.qi + 1}번 정답 공개 중`, final: '최종 순위 발표 중', draw: '행운상 추첨 중', end: '게임이 끝났어요' }[view.phase]
 
   function submit(e) {
     e.preventDefault()
@@ -304,25 +305,60 @@ function Final({ view, me }) {
 // 서버가 뽑은 당첨자를 모든 폰에서 동시에 3초간 룰렛으로 돌린 뒤 공개
 function Draw({ view }) {
   const [shown, setShown] = useState(null)
+  const ws = view.winners ?? []
   useEffect(() => {
-    if (!view.winner) { setShown(null); return }
-    const names = view.spin?.length ? view.spin : [view.winner.name]
+    if (!ws.length) { setShown(null); return }
+    const names = view.spin?.length ? view.spin : ws.map((w) => w.name)
     const started = Date.parse(view.drawn_at)
     let k = 0
     const t = setInterval(() => {
-      if (serverNow() - started > 3000) { setShown('done'); clearInterval(t); if (view.winner.is_me) fx.fanfare() }
+      if (serverNow() - started > 3000) { setShown('done'); clearInterval(t); if (ws.some((w) => w.is_me)) fx.fanfare() }
       else setShown(names[k++ % names.length])
     }, 85)
     return () => clearInterval(t)
   }, [view.drawn_at]) // eslint-disable-line
   const done = shown === 'done'
+  const mine = ws.some((w) => w.is_me)
   return <div className="center" style={{ flex: 1, alignContent: 'center' }}>
     <div className="big-icon"><Gift size={38} /></div>
     <p className="round" style={{ justifyContent: 'center' }}>행운상 추첨 · 4등 이하 대상</p>
-    <div className={`wheel-phone ${done ? 'done' : ''}`}>{!view.winner ? '두근두근' : done ? view.winner.name : shown}</div>
-    {done && <p className="title" style={{ fontSize: 24 }}>{view.winner.is_me ? '당첨! 앞으로 나와 주세요' : '축하합니다!'}</p>}
-    {!view.winner && <p className="lead">진행자가 곧 추첨을 시작해요</p>}
-    {view.drawn > 0 && <p className="lead num">지금까지 {view.drawn}명 당첨</p>}
+    {!ws.length && <><div className="wheel-phone">두근두근</div><p className="lead">진행자가 곧 추첨을 시작해요</p></>}
+    {ws.length > 0 && !done && <div className="wheel-phone">{shown}</div>}
+    {ws.length > 0 && done && <>
+      <div className="winners">{ws.map((w) => <span key={w.name} className={w.is_me ? 'me' : ''}>{w.name}</span>)}</div>
+      <p className="title" style={{ fontSize: 24 }}>{mine ? '당첨! 앞으로 나와 주세요' : `${ws.length}명 당첨, 축하합니다!`}</p>
+    </>}
+    {view.drawn > 0 && <p className="lead num">지금까지 행운상 {view.drawn}명</p>}
   </div>
+}
+
+// 마무리 장표: 감사 인사 + 수상자 + 내 기록. 이 화면을 캡처해 단톡방에 올리기 좋게.
+function End({ view, me }) {
+  const [a, b, c] = view.ranking
+  const st = view.end_stats ?? {}
+  const total = st.questions ?? 0
+  return <>
+    <div className="end-hero">
+      <Beer size={34} />
+      <h1>{view.end_msg}</h1>
+      <p className="num">{view.players}명 참여 · {fmt(st.answers)}번 답했어요</p>
+    </div>
+    <div className="panel end-awards">
+      <h3><Trophy size={18} />오늘의 수상자</h3>
+      {[a, b, c].map((p, i) => p && <div key={i} className={`award ${p.is_me ? 'me' : ''}`}><Medal size={20} /><b>{i + 1}등</b><span>{p.name}</span><em className="num">{fmt(p.score)}</em></div>)}
+      {st.streak_king && st.streak_king.n >= 2 && <div className="award"><Flame size={20} /><b>연속 정답왕</b><span>{st.streak_king.name}</span><em className="num">{st.streak_king.n}연속</em></div>}
+      {(view.lucky_all ?? []).length > 0 && <div className="award lucky"><Gift size={20} /><b>행운상</b><span>{view.lucky_all.join(', ')}</span></div>}
+    </div>
+    <div className="panel end-me">
+      <h3><UserRound size={18} />{me.name} 님의 기록</h3>
+      <div className="stat-row">
+        <div className="stat"><small>최종 순위</small><b className="num">{me.rank}위</b></div>
+        <div className="stat"><small>점수</small><b className="num">{fmt(me.score)}</b></div>
+        <div className="stat"><small>맞힌 문제</small><b className="num">{me.correct} / {total}</b></div>
+        <div className="stat"><small>최고 연속</small><b className="num">{me.max_streak}연속</b></div>
+      </div>
+    </div>
+    <p className="lead" style={{ textAlign: 'center', fontSize: 15 }}>이 화면을 캡처해서 단톡방에 자랑해 보세요</p>
+  </>
 }
 
