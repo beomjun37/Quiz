@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight, Dices, Copy, ImagePlus, ListOrdered, Trash2, Lock, RotateCcw, Save, SlidersHorizontal, Upload, Users } from 'lucide-react'
 import { rpc } from '../lib/supabase'
-import { useView } from '../lib/useView'
+import { useCountdown, useView } from '../lib/useView'
 import { errText, fmt } from '../lib/ui'
 
 // 진행자 노트북용. 권한은 서버(hq_admin)가 PIN으로 매번 검증한다. URL이 새도 조작 불가.
@@ -46,8 +46,9 @@ export default function Admin() {
         <span>단계<b>{phaseKo}</b></span>
         <span>문제<b className="num">{Math.max(view.qi + 1, 0)} / {view.total_q}</b></span>
         <span>참가<b className="num">{view.players}명</b></span>
-        {view.phase === 'q' && <span>제출<b className="num">{view.submitted}명</b></span>}
+        {view.phase === 'q' && <span>제출<b className="num">{view.submitted} / {view.players}명</b></span>}
       </div>
+      {view.phase === 'q' && view.question && <AdminTimer view={view} />}
       {view.question && <p className="lead" style={{ margin: '12px 0 0' }}>{view.question.q}</p>}
       <div style={{ marginTop: 16 }}>
         {next && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
@@ -136,4 +137,17 @@ function ImageUpload({ admin, total, setMsg }) {
     </div>
     <p className="lead" style={{ fontSize: 13 }}>사진은 그 문제가 열릴 때만 참가자 폰에 보여요. 문항 순서를 바꾸면 사진도 다시 붙여 주세요.</p>
   </>
+}
+
+// 문제 진행 중 남은 시간. 시간이 끝나면 "정답 공개" 누르라고 알려 준다.
+function AdminTimer({ view }) {
+  const q = view.question
+  const left = useCountdown(view.q_started_at, q.limit_sec)
+  const sec = Math.ceil(left)
+  const all = view.players > 0 && view.submitted >= view.players
+  return <div className={`admin-timer ${left <= 5 ? 'hurry' : ''} ${left <= 0 ? 'over' : ''}`}>
+    <b className="num">{left > 0 ? sec : 0}<small>초</small></b>
+    <div className="bar"><i style={{ width: `${(left / q.limit_sec) * 100}%` }} /></div>
+    <span>{left <= 0 ? '시간 끝! 정답 공개를 눌러 주세요' : all ? '전원 제출 완료. 바로 공개해도 돼요' : `${q.limit_sec}초 중 남은 시간`}</span>
+  </div>
 }
