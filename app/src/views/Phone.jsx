@@ -180,7 +180,7 @@ function Question({ view, me, act, busy }) {
     {canCard && <div className="cards">
       {q.type === 'mc' && <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'fifty' }))}><Split size={18} />50:50</button>}
       <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'double' }))}><Zap size={18} />점수 2배</button>
-      <small>찬스 카드 · 한 게임에 1장</small>
+      <small>찬스 카드는 게임 전체에서 딱 1장. 50:50은 오답 2개 지우기, 점수 2배는 맞히면 이 문제 점수가 두 배예요.</small>
     </div>}
     <div className={`choices ${ox ? 'ox' : ''}`}>
       {options(q).map(([label, k, bg, dark], i) => hide.includes(i)
@@ -266,7 +266,11 @@ function Bet({ me, act, busy }) {
   return <>
     <div className="round"><Flame size={18} />마지막 베팅</div>
     <h1 className="title">내 점수, 얼마나 걸까요?</h1>
-    <p className="lead">맞히면 건 만큼 더 받고, 틀리면 건 만큼 잃어요. 마감 전까지 바꿀 수 있어요.</p>
+    <div className="panel bet-explain">
+      <p>마지막 문제를 맞히면 <b>건 점수만큼 더</b> 받고, 틀리거나 못 풀면 <b>건 점수만큼 잃어요.</b> 문제 점수(최대 1,000)는 따로 받아요.</p>
+      <p className="num">예) 지금 {fmt(me.score)}점에서 올인 → 맞히면 <b className="up">{fmt(me.score * 2)}점 + 문제 점수</b>, 틀리면 <b className="down">0점</b></p>
+    </div>
+    <p className="lead" style={{ fontSize: 15 }}>마감 전까지 바꿀 수 있어요. 안 고르면 '안 걸기'예요.</p>
     <div className="bet">
       {opts.map(([v, l, sub]) => (
         <button key={v} disabled={busy} className={`${me.bet === v ? 'on' : ''} ${v === 100 ? 'allin' : ''}`}

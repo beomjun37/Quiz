@@ -77,6 +77,8 @@ alter table hq_players add column if not exists card text;                      
 alter table hq_players add column if not exists card_qi int;                             -- 카드를 쓴 문제
 alter table hq_players add column if not exists card_hide jsonb;                         -- 50:50 으로 지운 보기
 
+alter table hq_questions add column if not exists host text not null default '';  -- 진행자 멘트(선택)
+
 -- 투표형(정답 없음) 문항 허용
 alter table hq_questions alter column answer drop not null;
 alter table hq_questions drop constraint if exists hq_questions_type_check;
