@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, randomNick } from '../lib/ui'
+import { errText, fmt, options, randomNick, trap, REACT_EMOJI } from '../lib/ui'
 import { serverNow } from '../lib/clock'
 import { fx, unlockAudio } from '../lib/fx'
 
@@ -110,6 +110,9 @@ function Join({ view, act, msg, busy, onJoined }) {
         </div>
         <span className="lead" style={{ fontSize: 15 }}>고민되면 주사위를 눌러 보세요</span>
       </label>
+      {view.phase !== 'lobby' && view.phase !== 'end' && <div className="panel late">
+        <Clock size={20} /><span>게임이 이미 시작됐어요. 지금 들어오면 <b>{view.phase === 'q' ? `${view.qi + 1}번` : `${view.qi + 2}번`} 문제부터</b> 참여해요. 점수는 0점에서 시작하지만, 하위권 역전 보너스가 있어요!</span>
+      </div>}
       {msg && <div className="err" role="alert"><AlertCircle size={20} />{msg}</div>}
       <button className="primary" style={{ marginTop: 'auto' }} disabled={busy}><LogIn size={24} />{busy ? '들어가는 중…' : '입장하기'}</button>
     </form>
@@ -257,9 +260,26 @@ function Result({ view, me }) {
       <div className="stat"><small>연속 정답</small><b className="num">{me.streak > 0 ? <><Flame size={22} color="var(--beer)" />{me.streak}</> : '-'}</b></div>
     </div>}
     <Dist view={view} me={me} />
+    {(() => { const t = trap(q, view.dist); return t && <div className="trap"><AlertCircle size={18} />오늘의 함정: <b>'{t.label}'</b>에 {t.n}명이 속았어요</div> })()}
+    <Reactions view={view} />
     {q.note && <div className="panel note"><MessageCircle size={22} color="var(--beer)" /><span>{q.note}</span></div>}
     {!poll && <Top5 view={view} />}
   </>
+}
+
+// 정답 공개 때 리액션. 누를 때마다 서버에 1씩 쌓이고 모두의 폰·진행자 화면에 숫자가 오른다.
+function Reactions({ view }) {
+  const [mine, setMine] = useState({})
+  const r = view.reactions ?? {}
+  return <div className="reacts">
+    {Object.entries(REACT_EMOJI).map(([k, e]) => (
+      <button key={k} aria-label={`리액션 ${e}`} onClick={() => {
+        try { navigator.vibrate?.(15) } catch { /* noop */ }
+        setMine((m) => ({ ...m, [k]: (m[k] ?? 0) + 1 }))
+        rpc('hq_react', { p_kind: k }, { retry: false }).catch(() => {})
+      }}><span>{e}</span><b className="num">{Math.max(r[k] ?? 0, mine[k] ?? 0)}</b></button>
+    ))}
+  </div>
 }
 
 function Bet({ me, act, busy }) {
