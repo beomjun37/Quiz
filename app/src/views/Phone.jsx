@@ -140,7 +140,9 @@ function Lobby({ view, me, act, busy, leave }) {
   </>
 }
 
-function QImage({ q }) {
+// 사진 연출: zoom 은 4배 확대에서 시작해 제한 시간 동안 원래 크기로, blur 는 흐림에서 점점 선명하게.
+// 정답 공개 화면에서는 원본 그대로 보여 준다.
+function QImage({ q, left }) {
   const [src, setSrc] = useState(null)
   useEffect(() => {
     let dead = false
@@ -149,7 +151,10 @@ function QImage({ q }) {
     return () => { dead = true }
   }, [q.idx, q.has_image])
   if (!q.has_image) return null
-  return <div className="qimg">{src ? <img src={src} alt="문제 사진" /> : <span className="lead">사진 불러오는 중…</span>}</div>
+  const t = left == null ? 0 : Math.max(0, Math.min(1, left / q.limit_sec))  // 1 → 0
+  const style = q.reveal === 'zoom' ? { transform: `scale(${1 + 3 * t})` }
+    : q.reveal === 'blur' ? { filter: `blur(${Math.round(24 * t)}px)` } : undefined
+  return <div className="qimg">{src ? <img src={src} alt="문제 사진" style={style} /> : <span className="lead">사진 불러오는 중…</span>}</div>
 }
 
 function Question({ view, me, act, busy }) {
@@ -179,7 +184,7 @@ function Question({ view, me, act, busy }) {
     </div>
     <h1 className="title">{q.q}</h1>
     {poll && <p className="lead" style={{ marginTop: -8 }}>정답 없는 투표예요. 점수엔 영향 없어요.</p>}
-    <QImage q={q} />
+    <QImage q={q} left={left} />
     {me.double_now && <div className="badge-on"><Zap size={18} />2배 카드 사용 중</div>}
     {canCard && <div className="cards">
       {q.type === 'mc' && <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'fifty' }))}><Split size={18} />50:50</button>}
@@ -259,6 +264,7 @@ function Result({ view, me }) {
       <div className="stat"><small>지금 순위</small><b className="num">{me.rank}위 <RankDelta me={me} /></b></div>
       <div className="stat"><small>연속 정답</small><b className="num">{me.streak > 0 ? <><Flame size={22} color="var(--beer)" />{me.streak}</> : '-'}</b></div>
     </div>}
+    {q.has_image && <QImage q={q} />}
     <Dist view={view} me={me} />
     {(() => { const t = trap(q, view.dist); return t && <div className="trap"><AlertCircle size={18} />오늘의 함정: <b>'{t.label}'</b>에 {t.n}명이 속았어요</div> })()}
     <Reactions view={view} />

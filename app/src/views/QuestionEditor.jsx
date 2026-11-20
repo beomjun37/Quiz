@@ -3,18 +3,18 @@ import { ArrowDown, ArrowUp, Braces, ImagePlus, Plus, Save, Trash2 } from 'lucid
 
 const TYPES = [['mc', '4지선다'], ['ox', 'O / X'], ['poll', '투표']]
 const LIMITS = [10, 15, 20, 30]
-const blank = () => ({ round: '', type: 'mc', q: '', opts: ['', '', '', ''], answer: 0, note: '', host: '', is_bet: false, limit_sec: 15 })
+const blank = () => ({ round: '', type: 'mc', q: '', opts: ['', '', '', ''], answer: 0, note: '', host: '', is_bet: false, limit_sec: 15, reveal: '' })
 
 // 서버 형식 ↔ 편집 형식
 const fromServer = (r) => ({
   round: r.round ?? '', type: r.type, q: r.q ?? '', note: r.note ?? '', host: r.host ?? '',
   opts: r.type === 'ox' ? ['', '', '', ''] : [...(r.opts ?? []), '', '', '', ''].slice(0, 4),
-  answer: r.answer, is_bet: !!r.is_bet, limit_sec: r.limit_sec ?? 15,
+  answer: r.answer, is_bet: !!r.is_bet, limit_sec: r.limit_sec ?? 15, reveal: r.reveal ?? '',
 })
 const toServer = (e) => ({
   round: e.round.trim(), type: e.type, q: e.q.trim(), note: e.note.trim(), host: e.host.trim(),
   opts: e.type === 'ox' ? [] : e.opts.map((o) => o.trim()),
-  answer: e.type === 'poll' ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec,
+  answer: e.type === 'poll' ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal,
 })
 
 function problems(list) {
@@ -49,6 +49,9 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage }
   async function save() {
     const bad = problems(list)
     if (bad.length) return setMsg(bad.slice(0, 3).join(' · '))
+    // 사진 문제의 '(이름 1)' 같은 자리 표시는 막지 않고 한 번 확인만 한다(나중에 채워도 되게)
+    const todo = list.map((e, i) => (e.opts.some((o) => /^\(이름 \d\)$/.test(o.trim())) ? i + 1 : 0)).filter(Boolean)
+    if (todo.length && !confirm(`${todo.join(', ')}번 문제의 보기가 아직 '(이름 1)' 같은 자리 표시예요.\n그대로 저장할까요? (게임 전에 채우거나 지워 주세요)`)) return
     setBusy(true)
     try { await admin('questions', { list: list.map(toServer) }); setMsg(`${list.length}개 문항을 저장했어요`); setDirty(false) }
     catch { /* admin() 이 메시지를 띄운다 */ } finally { setBusy(false) }
@@ -67,6 +70,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage }
     {locked && <p className="err">게임 중에는 문항을 바꿀 수 없어요. 새 게임이나 한 판 더를 누르면 다시 편집할 수 있어요.</p>}
     {list.map((e, i) => (
       <fieldset key={i} className="qe-card" disabled={locked}>
+        {e.reveal && !images.includes(i) && !dirty && <div className="warn">사진 연출 문제인데 사진이 아직 없어요. 아래 '사진 붙이기'를 눌러 주세요.</div>}
         <div className="qe-head">
           <b className="num">{i + 1}</b>
           <input className="qe-round" placeholder="라운드 이름 (예: R1 추억 소환)" value={e.round} onChange={(ev) => edit(i, { round: ev.target.value })} />
@@ -93,6 +97,8 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage }
         <div className="qe-foot">
           <label>제한 시간 <select value={e.limit_sec} onChange={(ev) => edit(i, { limit_sec: +ev.target.value })}>
             {LIMITS.map((s) => <option key={s} value={s}>{s}초</option>)}</select></label>
+          <label>사진 연출 <select value={e.reveal} onChange={(ev) => edit(i, { reveal: ev.target.value })}>
+            <option value="">그대로</option><option value="zoom">확대 → 점점 작게</option><option value="blur">흐림 → 점점 선명</option></select></label>
           {e.type !== 'poll' && <label><input type="checkbox" checked={e.is_bet} onChange={(ev) => edit(i, { is_bet: ev.target.checked })} /> 베팅 문제</label>}
           {!dirty && <label className="qe-img"><ImagePlus size={16} /> {images.includes(i) ? '사진 바꾸기' : '사진 붙이기'}
             <input type="file" accept="image/*" hidden onChange={(ev) => { onImage(i, ev.target.files?.[0]); ev.target.value = '' }} /></label>}

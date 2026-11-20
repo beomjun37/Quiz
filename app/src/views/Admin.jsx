@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, X as Close } from 'lucide-react'
+import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
@@ -62,6 +62,7 @@ export default function Admin() {
   const base = location.href.split('#')[0]
 
   return <div className="admin">
+    <StickyBar view={view} next={next} phaseKo={phaseKo} busy={busy} run={run} />
     <section className="panel">
       <h2><SlidersHorizontal size={20} />진행</h2>
       <div className="kv">
@@ -70,7 +71,6 @@ export default function Admin() {
         <span>참가<b className="num">{view.players}명</b></span>
         {view.phase === 'q' && <span>제출<b className="num">{view.submitted} / {view.players}명</b></span>}
       </div>
-      {view.phase === 'q' && view.question && <AdminTimer view={view} />}
       <HostCard view={view} admin={admin} />
       <div style={{ marginTop: 16 }}>
         {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
@@ -123,16 +123,22 @@ export default function Admin() {
   </div>
 }
 
-// 문제 진행 중 남은 시간. 시간이 끝나면 "정답 공개" 누르라고 알려 준다.
-function AdminTimer({ view }) {
+// 화면 위에 늘 붙어 있는 진행 막대: 단계, 남은 시간, 제출 현황, 다음 버튼. 스크롤을 내려도 보인다.
+function StickyBar({ view, next, phaseKo, busy, run }) {
   const q = view.question
-  const left = useCountdown(view.q_started_at, q.limit_sec)
-  const sec = Math.ceil(left)
+  const left = useCountdown(view.phase === 'q' ? view.q_started_at : null, q?.limit_sec ?? 15)
+  const isQ = view.phase === 'q' && q
   const all = view.players > 0 && view.submitted >= view.players
-  return <div className={`admin-timer ${left <= 5 ? 'hurry' : ''} ${left <= 0 ? 'over' : ''}`}>
-    <b className="num">{left > 0 ? sec : 0}<small>초</small></b>
-    <div className="bar"><i style={{ width: `${(left / q.limit_sec) * 100}%` }} /></div>
-    <span>{left <= 0 ? '시간 끝! 정답 공개를 눌러 주세요' : all ? '전원 제출 완료. 바로 공개해도 돼요' : `${q.limit_sec}초 중 남은 시간`}</span>
+  return <div className="admin-sticky">
+    <div className="ph">{phaseKo}<small className="num">{Math.max(view.qi + 1, 0)} / {view.total_q} · {view.players}명</small></div>
+    {isQ && <>
+      <b className={`sec num ${left <= 5 ? 'hurry' : ''}`}>{Math.ceil(left)}<small style={{ fontSize: 14 }}>초</small></b>
+      <div className="sbar">
+        <div className="track"><i style={{ width: `${(left / q.limit_sec) * 100}%`, background: left <= 5 ? 'var(--x)' : undefined }} /></div>
+        <span className="num">{left <= 0 ? '시간 끝! 정답 공개를 눌러 주세요' : all ? `전원 제출 (${view.submitted}명) · 바로 공개해도 돼요` : `제출 ${view.submitted} / ${view.players}명`}</span>
+      </div>
+    </>}
+    {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={20} /></button>}
   </div>
 }
 
@@ -176,6 +182,8 @@ function HostCard({ view, admin }) {
   return <div className="host">
     <div className="host-say"><Mic size={18} /><p>{say}</p></div>
     {view.phase === 'answer' && view.reactions && <div className="host-ans">반응 {['clap', 'lol', 'beer', 'fire'].map((k) => `${REACT_EMOJI[k]} ${view.reactions[k] ?? 0}`).join('  ')}</div>}
+    {nx && nx.reveal && !nx.has_image && ['lobby', 'answer', 'bet'].includes(view.phase) &&
+      <div className="warn"><AlertTriangle size={16} />다음 {nx.idx + 1}번은 사진 문제인데 사진이 없어요. 문항 편집에서 붙이거나 건너뛰세요.</div>}
     {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
       정답 <b>{label(q, cur.now.answer)}</b>{cur.now.note && <span> · {cur.now.note}</span>}</div>}
     {nx && ['lobby', 'answer', 'bet'].includes(view.phase) && <div className="host-next">

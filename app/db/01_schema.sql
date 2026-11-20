@@ -83,6 +83,9 @@ alter table hq_players add column if not exists max_streak int not null default 
 alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
 alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 2차에서 만나요';
 
+-- 사진 연출: '' | zoom(크게 확대→점점 축소) | blur(흐림→점점 선명)
+alter table hq_questions add column if not exists reveal text not null default '';
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;
