@@ -98,6 +98,18 @@ begin
   return jsonb_build_object('ok', true);
 end $$;
 
+-- 리액션: 정답 공개 화면에서만. 한 번에 1씩, 문제당 종류별로 센다.
+create or replace function hq_react(p_kind text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare s hq_state;
+begin
+  select * into s from hq_state where id = 1;
+  if s.phase <> 'answer' then return jsonb_build_object('ok', false); end if;
+  insert into hq_reactions (qi, kind, n) values (s.qi, p_kind, 1)
+  on conflict (qi, kind) do update set n = hq_reactions.n + 1;
+  return jsonb_build_object('ok', true);
+end $$;
+
 -- 문항 이미지: 지금 열려 있는 문제의 것만 꺼낼 수 있다(다음 문제 사진을 미리 못 보게).
 create or replace function hq_image(p_idx int)
 returns text language plpgsql security definer set search_path = public as $$
@@ -160,6 +172,7 @@ begin
     'winners', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'is_me', id = p_player)), '[]') from hq_players where id = any(s.winner_ids)),
     'lucky_all', case when s.phase in ('draw','end') then (select coalesce(jsonb_agg(name order by name), '[]') from hq_players where won) end,
     'end_msg', s.end_msg,
+    'reactions', case when revealed then (select coalesce(jsonb_object_agg(kind, n), '{}') from hq_reactions where qi = s.qi) end,
     'end_stats', case when s.phase = 'end' then jsonb_build_object(
         'streak_king', (select jsonb_build_object('name', name, 'n', max_streak) from hq_players where max_streak > 0 order by max_streak desc, score desc limit 1),
         'questions', (select count(*) from hq_questions where type <> 'poll'),
@@ -220,6 +233,37 @@ begin
     where id = 1;
     update hq_players set won = true where id = any(select unnest(winner_ids) from hq_state where id = 1);
 
+  elsif p_action = 'set_pin' then                   -- PIN 바꾸기 (4~12자)
+    if char_length(coalesce(p_arg->>'pin', '')) not between 4 and 12 then raise exception 'BAD_NEW_PIN'; end if;
+    update hq_config set pin_hash = crypt(p_arg->>'pin', gen_salt('bf')) where id = 1;
+
+  elsif p_action = 'back' then                      -- 실수 되돌리기: 한 단계 뒤로
+    if p_arg ? 'from_phase' and (p_arg->>'from_phase' <> s.phase or (p_arg->>'from_qi')::int <> s.qi) then
+      return jsonb_build_object('ok', true, 'skipped', true);
+    end if;
+    if s.phase = 'q' then
+      -- 문제 열기 취소: 이 문제 답안을 지우고 직전 단계로(시간은 다시 열 때 새로 시작)
+      delete from hq_answers where qi = s.qi;
+      update hq_players set card = null, card_qi = null, card_hide = null where card_qi = s.qi;
+      update hq_state set qi = qi - 1, q_started_at = null, updated_at = now(),
+        phase = case when exists (select 1 from hq_questions where idx = s.qi and is_bet) then 'bet'
+                     when s.qi = 0 then 'lobby' else 'answer' end
+      where id = 1;
+    elsif s.phase = 'answer' then
+      -- 정답 공개 취소: 점수·연속 기록을 공개 직전으로 되돌리고 다시 '문제 푸는 중'으로
+      update hq_players set score = prev_score, streak = prev_streak, max_streak = prev_max_streak,
+        active = prev_active, last_gain = 0, last_bonus = '{}' where true;
+      update hq_state set phase = 'q', updated_at = now() where id = 1;
+    elsif s.phase = 'bet' then
+      update hq_state set phase = case when s.qi < 0 then 'lobby' else 'answer' end, updated_at = now() where id = 1;
+    elsif s.phase = 'final' then
+      update hq_state set phase = 'answer', updated_at = now() where id = 1;
+    elsif s.phase = 'draw' then
+      update hq_state set phase = 'final', winner_ids = '{}', updated_at = now() where id = 1;
+    elsif s.phase = 'end' then
+      update hq_state set phase = 'draw', updated_at = now() where id = 1;
+    end if;
+
   elsif p_action = 'end_msg' then
     update hq_state set end_msg = left(coalesce(p_arg->>'msg', ''), 120), updated_at = now() where id = 1;
 
@@ -253,13 +297,13 @@ begin
     return (select coalesce(jsonb_agg(idx order by idx), '[]') from hq_images);
 
   elsif p_action = 'restart' then                   -- 한 판 더: 참가자는 그대로, 점수·답안·베팅·카드·추첨만 비운다. 가상 참가자는 뺀다.
-    delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where is_bot;
+    delete from hq_answers where true; delete from hq_bets where true; delete from hq_reactions where true; delete from hq_players where is_bot;
     update hq_players set score = 0, active = false, won = false, prev_score = 0, prev_rank = null, last_gain = 0,
       streak = 0, max_streak = 0, last_bonus = '{}', card = null, card_qi = null, card_hide = null where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'reset' then                     -- 새 게임 / 행사 후 개인정보 삭제
-    delete from hq_answers where true; delete from hq_bets where true; delete from hq_players where true;
+    delete from hq_answers where true; delete from hq_bets where true; delete from hq_reactions where true; delete from hq_players where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
 
   elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
@@ -310,7 +354,8 @@ begin
   -- 마감 후 들어온(또는 아직 미래인 봇) 응답은 무효
   delete from hq_answers where qi = s.qi and at > least(now(), s.q_started_at + make_interval(secs => q.limit_sec + 2));
   -- 순위 변동·이번 문제 득점 표시용 스냅샷
-  update hq_players p set prev_score = p.score, prev_rank = r.rk, last_bonus = '{}'
+  update hq_players p set prev_score = p.score, prev_rank = r.rk, last_bonus = '{}',
+    prev_streak = p.streak, prev_max_streak = p.max_streak, prev_active = p.active
   from (select id, rank() over (order by score desc)::int rk from hq_players) r where r.id = p.id;
 
   if q.type = 'poll' then
@@ -357,6 +402,6 @@ do $$ begin
     revoke all on function hq_open_q() from anon, authenticated;
     revoke all on function hq_reveal() from anon, authenticated;
     grant execute on function hq_join(text, uuid), hq_leave(uuid), hq_answer(uuid,int), hq_card(uuid,text), hq_bet(uuid,int),
-      hq_image(int), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
+      hq_image(int), hq_react(text), hq_view(uuid), hq_admin(text,text,jsonb) to anon, authenticated;
   end if;
 end $$;

@@ -83,6 +83,15 @@ alter table hq_players add column if not exists max_streak int not null default 
 alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
 alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 2차에서 만나요';
 
+-- 정답 공개 되돌리기용 스냅샷
+alter table hq_players add column if not exists prev_streak int not null default 0;
+alter table hq_players add column if not exists prev_max_streak int not null default 0;
+alter table hq_players add column if not exists prev_active boolean not null default false;
+
+-- 정답 공개 때 리액션(👏😂🍺🔥) 집계
+create table if not exists hq_reactions (qi int not null, kind text not null check (kind in ('clap','lol','beer','fire')), n int not null default 0, primary key (qi, kind));
+alter table hq_reactions enable row level security;
+
 -- 투표형(정답 없음) 문항 허용
 alter table hq_questions alter column answer drop not null;
 alter table hq_questions drop constraint if exists hq_questions_type_check;

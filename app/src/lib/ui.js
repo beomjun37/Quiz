@@ -16,6 +16,7 @@ export const ERR = {
   CARD_USED: '찬스 카드는 한 게임에 한 장만 쓸 수 있어요',
   CARD_NOT_NOW: '이 문제에서는 그 카드를 쓸 수 없어요',
   IMAGE_TOO_BIG: '사진이 너무 커요. 다른 사진을 골라 주세요',
+  BAD_NEW_PIN: 'PIN은 4~12자리로 정해 주세요',
   NOT_LOBBY: '게임이 시작된 뒤에는 닉네임을 바꿀 수 없어요',
   BAD_PIN: 'PIN이 틀렸어요',
   ONLY_IN_LOBBY: '문항은 시작 전(대기 단계)에만 바꿀 수 있어요',
@@ -38,3 +39,15 @@ export const randomNick = (prev) => {
 }
 
 export const fmt = (n) => (n ?? 0).toLocaleString('ko-KR')
+
+export const REACT_EMOJI = { clap: '👏', lol: '😂', beer: '🍺', fire: '🔥' }
+
+// 가장 많이 고른 오답이 20% 이상이면 "오늘의 함정"
+export function trap(q, dist) {
+  if (!dist || q.answer == null) return null
+  const total = dist.reduce((a, b) => a + b, 0)
+  let best = -1
+  dist.forEach((n, i) => { if (i !== q.answer && (best < 0 || n > dist[best])) best = i })
+  if (best < 0 || total === 0 || dist[best] / total < 0.2) return null
+  return { label: options(q)[best][0], n: dist[best] }
+}
