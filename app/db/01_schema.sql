@@ -86,6 +86,22 @@ alter table hq_state add column if not exists end_msg text not null default '오
 -- 사진 연출: '' | zoom(크게 확대→점점 축소) | blur(흐림→점점 선명)
 alter table hq_questions add column if not exists reveal text not null default '';
 
+-- 문항 고정: 랜덤 세트를 다시 만들어도 남는 문제(부장님·사진·투표 등 직접 만든 것)
+alter table hq_questions add column if not exists pinned boolean not null default false;
+
+-- 문제 은행: 랜덤 세트 재료. used 가 적은 문제부터 뽑아 매번 다른 문제가 나오게 한다.
+create table if not exists hq_bank (
+  id serial primary key,
+  cat text not null,                 -- 추억 | 요즘 말 | 예능 | 상식 | 베팅
+  diff int not null check (diff between 1 and 3),   -- 1 쉬움 2 보통 3 어려움
+  type text not null check (type in ('ox','mc')),
+  q text not null, opts jsonb not null default '[]', answer int not null,
+  note text not null default '', host text not null default '',
+  used int not null default 0,
+  unique (q)
+);
+alter table hq_bank enable row level security;
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;

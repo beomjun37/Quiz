@@ -278,9 +278,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', '')
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false)
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
 
@@ -313,6 +313,43 @@ begin
                'reveal', reveal, 'has_image', exists (select 1 from hq_images i where i.idx = hq_questions.idx))
                from hq_questions where idx = s.qi + 1),
       'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));
+
+  elsif p_action = 'bank_stats' then                -- 문제 은행 현황: 카테고리 × 난이도 개수
+    return (select coalesce(jsonb_object_agg(cat, x), '{}') from (
+      select cat, jsonb_build_object('1', count(*) filter (where diff = 1), '2', count(*) filter (where diff = 2),
+                                     '3', count(*) filter (where diff = 3)) x from hq_bank group by cat) z);
+
+  elsif p_action = 'compose' then
+    -- 랜덤 세트 만들기. 순서: 은행 카테고리(추억→요즘 말→예능→상식) → 고정 문항(원래 순서) → 베팅 1문제.
+    -- p_arg: {"counts": {"추억": 3, ...}, "min_diff": 2, "bet": true}
+    if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
+    create temp table _pick (ord serial, round text, type text, q text, opts jsonb, answer int, note text, host text,
+      is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int) on commit drop;
+    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
+      select r, b.type, b.q, b.opts, b.answer, b.note, b.host, false, 15, '', false, b.id
+      from (values ('추억', '추억 소환', 1), ('요즘 말', '요즘 말 테스트', 2), ('예능', '예능 소환', 3), ('상식', '상식 퀴즈', 4)) c(cat, r, o)
+      cross join lateral (select * from hq_bank b where b.cat = c.cat and b.diff >= coalesce((p_arg->>'min_diff')::int, 1)
+                          order by b.used, random() limit greatest(coalesce((p_arg->'counts'->>c.cat)::int, 0), 0)) b
+      order by c.o, b.diff, random();
+    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx)
+      select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx
+      from hq_questions where pinned and not is_bet order by idx;
+    if coalesce((p_arg->>'bet')::boolean, true) then
+      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
+        select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
+        from hq_bank where cat = '베팅' order by used, random() limit 1;
+    end if;
+    if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
+    -- 고정 문항의 사진은 새 번호로 옮기고 나머지 사진은 정리
+    create temp table _img on commit drop as
+      select p.ord - 1 as idx, i.data from _pick p join hq_images i on i.idx = p.old_idx;
+    delete from hq_images where true;
+    insert into hq_images (idx, data) select idx, data from _img;
+    delete from hq_questions where true;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned)
+      select ord - 1, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned from _pick;
+    update hq_bank set used = used + 1 where id in (select bank_id from _pick where bank_id is not null);
+    return jsonb_build_object('ok', true, 'total', (select count(*) from _pick));
 
   elsif p_action = 'questions_get' then
     return (select coalesce(jsonb_agg(to_jsonb(x) order by idx), '[]') from hq_questions x);
