@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, X as Close } from 'lucide-react'
+import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
@@ -14,6 +14,7 @@ export default function Admin() {
   const [busy, setBusy] = useState(false)
   const { view, refetch } = useView(null, 2000)
   const [qr, setQr] = useState(false)
+  const [editorKey, setEditorKey] = useState(0)
   const [images, setImages] = useState([])
   const refreshImages = () => admin('images_list').then(setImages).catch(() => {})
   useEffect(() => { if (ok) refreshImages() }, [ok]) // eslint-disable-line
@@ -117,7 +118,8 @@ export default function Admin() {
       )) : <p className="lead">아직 점수가 없어요</p>}
 
       <h2 style={{ marginTop: 28 }}><PencilLine size={20} />문항 편집</h2>
-      <QuestionEditor admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage} />
+      <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages() }} />
+      <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage} />
     </section>
     {qr && <QrOverlay url={base} onClose={() => setQr(false)} />}
   </div>
@@ -255,4 +257,37 @@ function PinChange({ admin, busy, onChanged }) {
     }}><Save size={15} style={{ verticalAlign: -2 }} /> 저장</button>
     <button className="ghost" onClick={() => setOpen(false)}>취소</button>
   </>
+}
+
+// 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(부장님·사진·투표 등)는 그대로 두고 나머지만 새로 뽑는다.
+const CATS = ['추억', '요즘 말', '예능', '상식']
+function BankPanel({ admin, phase, setMsg, onDone }) {
+  const [stats, setStats] = useState(null)
+  const [counts, setCounts] = useState({ 추억: 3, '요즘 말': 2, 예능: 3, 상식: 2 })
+  const [minDiff, setMinDiff] = useState(2)
+  const [bet, setBet] = useState(true)
+  useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
+  const avail = (c) => stats?.[c] ? [1, 2, 3].filter((d) => d >= minDiff).reduce((a, d) => a + (stats[c][d] ?? 0), 0) : 0
+  const total = CATS.reduce((a, c) => a + Math.min(counts[c], avail(c)), 0) + (bet ? 1 : 0)
+  return <div className="bank">
+    <div className="bank-head"><b>문제 은행에서 랜덤으로 뽑기</b><small>자주 나온 문제는 뒤로 밀려서 매번 다르게 나와요</small></div>
+    <div className="bank-grid">{CATS.map((c) => (
+      <div key={c} className="bank-cat">
+        <span>{c} <small className="num">{avail(c)}개</small></span>
+        <div className="stepper sm">
+          <button type="button" aria-label={`${c} 줄이기`} onClick={() => setCounts((v) => ({ ...v, [c]: Math.max(0, v[c] - 1) }))}>−</button>
+          <b className="num">{counts[c]}</b>
+          <button type="button" aria-label={`${c} 늘리기`} onClick={() => setCounts((v) => ({ ...v, [c]: Math.min(avail(c), v[c] + 1) }))}>+</button>
+        </div>
+      </div>))}
+    </div>
+    <div className="seg" style={{ margin: '8px 0' }}>{[[1, '쉬움 포함'], [2, '보통 이상'], [3, '어려움만']].map(([d, l]) => (
+      <button type="button" key={d} className={minDiff === d ? 'on' : ''} onClick={() => setMinDiff(d)}>{l}</button>))}</div>
+    <label style={{ fontSize: 14, color: 'var(--mute)' }}><input type="checkbox" checked={bet} onChange={(e) => setBet(e.target.checked)} /> 마지막에 올인 베팅 문제 넣기</label>
+    <button className="go" style={{ marginTop: 10 }} disabled={phase !== 'lobby'} onClick={async () => {
+      if (!confirm(`은행에서 ${total}문제를 새로 뽑을까요?\n'고정'한 문제는 그대로 남고, 나머지 문제는 바뀌어요.`)) return
+      try { const r = await admin('compose', { counts, min_diff: minDiff, bet }); setMsg(`랜덤 세트를 만들었어요 (고정 문제 포함 총 ${r.total}문제)`); onDone() } catch { /* 메시지 표시됨 */ }
+    }}><Shuffle size={18} />랜덤 세트 만들기</button>
+    <p className="lead num" style={{ fontSize: 13, margin: '6px 0 0' }}>은행에서 {total}문제 + 고정한 문제</p>
+  </div>
 }

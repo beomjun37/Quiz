@@ -86,6 +86,22 @@ alter table hq_state add column if not exists end_msg text not null default '오
 -- 사진 연출: '' | zoom(크게 확대→점점 축소) | blur(흐림→점점 선명)
 alter table hq_questions add column if not exists reveal text not null default '';
 
+-- 문항 고정: 랜덤 세트를 다시 만들어도 남는 문제(부장님·사진·투표 등 직접 만든 것)
+alter table hq_questions add column if not exists pinned boolean not null default false;
+
+-- 문제 은행: 랜덤 세트 재료. used 가 적은 문제부터 뽑아 매번 다른 문제가 나오게 한다.
+create table if not exists hq_bank (
+  id serial primary key,
+  cat text not null,                 -- 추억 | 요즘 말 | 예능 | 상식 | 베팅
+  diff int not null check (diff between 1 and 3),   -- 1 쉬움 2 보통 3 어려움
+  type text not null check (type in ('ox','mc')),
+  q text not null, opts jsonb not null default '[]', answer int not null,
+  note text not null default '', host text not null default '',
+  used int not null default 0,
+  unique (q)
+);
+alter table hq_bank enable row level security;
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;
@@ -397,9 +413,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', '')
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false)
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
 
@@ -432,6 +448,43 @@ begin
                'reveal', reveal, 'has_image', exists (select 1 from hq_images i where i.idx = hq_questions.idx))
                from hq_questions where idx = s.qi + 1),
       'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));
+
+  elsif p_action = 'bank_stats' then                -- 문제 은행 현황: 카테고리 × 난이도 개수
+    return (select coalesce(jsonb_object_agg(cat, x), '{}') from (
+      select cat, jsonb_build_object('1', count(*) filter (where diff = 1), '2', count(*) filter (where diff = 2),
+                                     '3', count(*) filter (where diff = 3)) x from hq_bank group by cat) z);
+
+  elsif p_action = 'compose' then
+    -- 랜덤 세트 만들기. 순서: 은행 카테고리(추억→요즘 말→예능→상식) → 고정 문항(원래 순서) → 베팅 1문제.
+    -- p_arg: {"counts": {"추억": 3, ...}, "min_diff": 2, "bet": true}
+    if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
+    create temp table _pick (ord serial, round text, type text, q text, opts jsonb, answer int, note text, host text,
+      is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int) on commit drop;
+    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
+      select r, b.type, b.q, b.opts, b.answer, b.note, b.host, false, 15, '', false, b.id
+      from (values ('추억', '추억 소환', 1), ('요즘 말', '요즘 말 테스트', 2), ('예능', '예능 소환', 3), ('상식', '상식 퀴즈', 4)) c(cat, r, o)
+      cross join lateral (select * from hq_bank b where b.cat = c.cat and b.diff >= coalesce((p_arg->>'min_diff')::int, 1)
+                          order by b.used, random() limit greatest(coalesce((p_arg->'counts'->>c.cat)::int, 0), 0)) b
+      order by c.o, b.diff, random();
+    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx)
+      select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx
+      from hq_questions where pinned and not is_bet order by idx;
+    if coalesce((p_arg->>'bet')::boolean, true) then
+      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
+        select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
+        from hq_bank where cat = '베팅' order by used, random() limit 1;
+    end if;
+    if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
+    -- 고정 문항의 사진은 새 번호로 옮기고 나머지 사진은 정리
+    create temp table _img on commit drop as
+      select p.ord - 1 as idx, i.data from _pick p join hq_images i on i.idx = p.old_idx;
+    delete from hq_images where true;
+    insert into hq_images (idx, data) select idx, data from _img;
+    delete from hq_questions where true;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned)
+      select ord - 1, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned from _pick;
+    update hq_bank set used = used + 1 where id in (select bank_id from _pick where bank_id is not null);
+    return jsonb_build_object('ok', true, 'total', (select count(*) from _pick));
 
   elsif p_action = 'questions_get' then
     return (select coalesce(jsonb_agg(to_jsonb(x) order by idx), '[]') from hq_questions x);
@@ -528,19 +581,84 @@ end $$;
 -- 예시 문항 15개. 진행자 화면 [문항 편집]에서 바꾼다. R4 사진 퀴즈 2문제는 사진과 보기를 진행자가 채워야 한다.
 delete from hq_questions where true;
 delete from hq_images where true;
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (0,'R1 추억 소환','ox','2002 월드컵에서 한국은 4강에 올랐다.','[]'::jsonb,0,'4강 신화! 그날 어디서 보셨어요?',false,15,'몸풀기 갑니다! 2002년 그 여름, 다들 기억나시죠? 빨리 누를수록 점수가 높아요!','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (1,'R1 추억 소환','mc','1988 서울 올림픽의 마스코트는?','["호돌이", "수호랑", "꿈돌이", "반다비"]'::jsonb,0,'꿈돌이는 93 대전 엑스포, 수호랑·반다비는 2018 평창이에요',false,15,'88 올림픽 때 초등학생이셨던 분 손! 마스코트 이름 기억하세요?','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (2,'R1 추억 소환','mc','삐삐 숫자 "8282"의 뜻은?','["사랑해", "빨리빨리", "잘 자", "보고 싶어"]'::jsonb,1,'"1004"는 천사, "486"은 사랑해',false,15,'삐삐 세대 나와 주세요. 이건 손이 먼저 기억할 거예요!','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (3,'R2 요즘 말 테스트','mc','"중꺾마"의 뜻은?','["중요한 건 꺾이지 않는 마음", "중간에 꺾으면 마이너스", "중식은 꺾어 먹어야 제맛", "중년은 꺾여도 마음은 청춘"]'::jsonb,0,'2022년 롤드컵 데프트 선수 인터뷰에서 퍼진 말이에요',false,15,'이제 요즘 말 테스트입니다. 막내들은 쉽겠지만, 부장님은요?','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (4,'R2 요즘 말 테스트','mc','"스불재"의 뜻은?','["스스로 불러온 재앙", "스트레스 불태우는 재택", "스타일 불타는 재력가", "스페셜 불금 재미"]'::jsonb,0,'야근 자청했다가 후회할 때 쓰면 딱이에요',false,15,'이건 오늘 2차 가서 쓸 수도 있는 말입니다.','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (5,'R2 요즘 말 테스트','ox','"킹받네"는 "기분이 아주 좋다"는 뜻이다.','[]'::jsonb,1,'"열받네"를 더 세게 말한 거예요. 기분 나쁠 때 써요',false,10,'O일까요, X일까요? 단어만 보면 좋아 보이는데요…','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (6,'R3 예능 소환','mc','"1박 2일" 복불복의 대표 벌칙 음료는?','["까나리 액젓", "홍초", "매실 원액", "사과 식초"]'::jsonb,0,'한 모금이면 바로 표정 관리 실패',false,15,'이제 예능 소환입니다. 일요일 저녁 생각나시죠?','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (7,'R3 예능 소환','mc','"런닝맨"에서 상대를 탈락시키려면 등에 붙은 무엇을 떼야 할까?','["이름표", "번호표", "스티커", "손목 밴드"]'::jsonb,0,'이름표 뜯기, 해 본 분 계세요?',false,15,'이름표 뜯기! 오늘 회식 끝나고 해 볼까요?','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (8,'R3 예능 소환','mc','초성 퀴즈! "ㄱㄴㅅㅌㅇ" — 2012년 전 세계가 말춤을 춘 이 노래는?','["강남스타일", "젠틀맨", "챔피언", "새"]'::jsonb,0,'유튜브 조회수 10억을 처음 넘긴 뮤직비디오예요',false,15,'신서유기 초성 퀴즈 스타일로 갑니다!','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (9,'R3 예능 소환','mc','드라마 "응답하라 1988"의 배경이 된 동네는?','["쌍문동", "신촌", "성수동", "봉천동"]'::jsonb,0,'덕선이네 골목, 쌍문동이었죠',false,15,'응팔 정주행하신 분들은 바로 아실 거예요.','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (10,'R4 사진 퀴즈','mc','확대 사진! 이 연예인은 누구일까요?','["(이름 1)", "(이름 2)", "(이름 3)", "(이름 4)"]'::jsonb,0,'사진이 점점 작아질수록 쉬워지지만 점수는 줄어요',false,20,'화면이 점점 작아집니다. 빨리 알아볼수록 점수가 높아요!','zoom');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (11,'R4 사진 퀴즈','mc','어린 시절 사진! 이 아이는 커서 어떤 연예인이 됐을까요?','["(이름 1)", "(이름 2)", "(이름 3)", "(이름 4)"]'::jsonb,0,'떡잎부터 달랐네요',false,20,'이 귀여운 아이가 누구로 자랐을까요? 사진이 점점 선명해집니다!','blur');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (12,'쉬어가기 투표','poll','오늘 2차, 어디로 갈까요?','["노래방", "호프", "포장마차", "집에 갑니다"]'::jsonb,null,'점수와 상관없는 투표예요',false,15,'잠깐 쉬어 갑니다. 점수와 상관없는 투표예요. 오늘 2차는 여러분이 정합니다!','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (13,'R5 부장님 마음 맞히기','mc','부장님 최애 회식 안주는?','["삼겹살", "회", "치킨", "골뱅이"]'::jsonb,0,'부장님 한 말씀 부탁드립니다!',false,15,'이제 진짜 문제입니다. 부장님 마음을 맞혀 보세요. 부장님은 표정 관리 부탁드려요!','');
-insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal) values (14,'R6 올인 베팅','mc','1997년 IMF 때 "금 모으기 운동"으로 모인 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 227톤", "약 500톤"]'::jsonb,2,'약 350만 명이 참여했어요',true,15,'마지막 문제! 지금까지 모은 점수를 걸고 역전을 노려 보세요.','');
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (0,'추억 소환','ox','2002 월드컵에서 한국은 4강에 올랐다.','[]'::jsonb,0,'4강 신화! 그날 어디서 보셨어요?',false,15,'몸풀기 갑니다! 2002년 그 여름, 다들 기억나시죠? 빨리 누를수록 점수가 높아요!','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (1,'추억 소환','mc','1988 서울 올림픽의 마스코트는?','["호돌이", "수호랑", "꿈돌이", "반다비"]'::jsonb,0,'꿈돌이는 93 대전 엑스포, 수호랑·반다비는 2018 평창이에요',false,15,'88 올림픽 때 초등학생이셨던 분 손! 마스코트 이름 기억하세요?','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (2,'추억 소환','mc','삐삐 숫자 "8282"의 뜻은?','["사랑해", "빨리빨리", "잘 자", "보고 싶어"]'::jsonb,1,'"1004"는 천사, "486"은 사랑해',false,15,'삐삐 세대 나와 주세요. 이건 손이 먼저 기억할 거예요!','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (3,'요즘 말 테스트','mc','"중꺾마"의 뜻은?','["중요한 건 꺾이지 않는 마음", "중간에 꺾으면 마이너스", "중식은 꺾어 먹어야 제맛", "중년은 꺾여도 마음은 청춘"]'::jsonb,0,'2022년 롤드컵 데프트 선수 인터뷰에서 퍼진 말이에요',false,15,'이제 요즘 말 테스트입니다. 막내들은 쉽겠지만, 부장님은요?','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (4,'요즘 말 테스트','mc','"스불재"의 뜻은?','["스스로 불러온 재앙", "스트레스 불태우는 재택", "스타일 불타는 재력가", "스페셜 불금 재미"]'::jsonb,0,'야근 자청했다가 후회할 때 쓰면 딱이에요',false,15,'이건 오늘 2차 가서 쓸 수도 있는 말입니다.','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (5,'요즘 말 테스트','ox','"킹받네"는 "기분이 아주 좋다"는 뜻이다.','[]'::jsonb,1,'"열받네"를 더 세게 말한 거예요. 기분 나쁠 때 써요',false,10,'O일까요, X일까요? 단어만 보면 좋아 보이는데요…','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (6,'예능 소환','mc','"1박 2일" 복불복의 대표 벌칙 음료는?','["까나리 액젓", "홍초", "매실 원액", "사과 식초"]'::jsonb,0,'한 모금이면 바로 표정 관리 실패',false,15,'이제 예능 소환입니다. 일요일 저녁 생각나시죠?','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (7,'예능 소환','mc','"런닝맨"에서 상대를 탈락시키려면 등에 붙은 무엇을 떼야 할까?','["이름표", "번호표", "스티커", "손목 밴드"]'::jsonb,0,'이름표 뜯기, 해 본 분 계세요?',false,15,'이름표 뜯기! 오늘 회식 끝나고 해 볼까요?','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (8,'예능 소환','mc','초성 퀴즈! "ㄱㄴㅅㅌㅇ" — 2012년 전 세계가 말춤을 춘 이 노래는?','["강남스타일", "젠틀맨", "챔피언", "새"]'::jsonb,0,'유튜브 조회수 10억을 처음 넘긴 뮤직비디오예요',false,15,'신서유기 초성 퀴즈 스타일로 갑니다!','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (9,'예능 소환','mc','드라마 "응답하라 1988"의 배경이 된 동네는?','["쌍문동", "신촌", "성수동", "봉천동"]'::jsonb,0,'덕선이네 골목, 쌍문동이었죠',false,15,'응팔 정주행하신 분들은 바로 아실 거예요.','',false);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (10,'사진 퀴즈','mc','확대 사진! 이 연예인은 누구일까요?','["(이름 1)", "(이름 2)", "(이름 3)", "(이름 4)"]'::jsonb,0,'사진이 점점 작아질수록 쉬워지지만 점수는 줄어요',false,20,'화면이 점점 작아집니다. 빨리 알아볼수록 점수가 높아요!','zoom',true);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (11,'사진 퀴즈','mc','어린 시절 사진! 이 아이는 커서 어떤 연예인이 됐을까요?','["(이름 1)", "(이름 2)", "(이름 3)", "(이름 4)"]'::jsonb,0,'떡잎부터 달랐네요',false,20,'이 귀여운 아이가 누구로 자랐을까요? 사진이 점점 선명해집니다!','blur',true);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (12,'쉬어가기 투표','poll','오늘 2차, 어디로 갈까요?','["노래방", "호프", "포장마차", "집에 갑니다"]'::jsonb,null,'점수와 상관없는 투표예요',false,15,'잠깐 쉬어 갑니다. 점수와 상관없는 투표예요. 오늘 2차는 여러분이 정합니다!','',true);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (13,'부장님 마음 맞히기','mc','부장님 최애 회식 안주는?','["삼겹살", "회", "치킨", "골뱅이"]'::jsonb,0,'부장님 한 말씀 부탁드립니다!',false,15,'이제 진짜 문제입니다. 부장님 마음을 맞혀 보세요. 부장님은 표정 관리 부탁드려요!','',true);
+insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (14,'올인 베팅','mc','1997년 IMF 때 "금 모으기 운동"으로 모인 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 227톤", "약 500톤"]'::jsonb,2,'약 350만 명이 참여했어요',true,15,'마지막 문제! 지금까지 모은 점수를 걸고 역전을 노려 보세요.','',false);
+-- 문제 은행. 다시 실행해도 같은 문제는 중복으로 들어가지 않는다(문제 글 기준).
+-- 보기 순서는 여기서 한 번 섞어서 넣는다(정답이 늘 1번이 되지 않게).
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','2002 월드컵 4강전, 한국의 상대 팀은?','["터키", "스페인", "독일", "이탈리아"]'::jsonb,2,'0:1 패배. 16강 이탈리아, 8강 스페인, 3·4위전은 터키였어요','4강까지는 다 아시죠? 그럼 4강 상대는요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','2002 월드컵 16강 이탈리아전, 연장 골든골의 주인공은?','["박지성", "설기현", "황선홍", "안정환"]'::jsonb,3,'설기현 동점골, 안정환 헤딩 골든골!','반지 키스 기억나시는 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',3,'mc','2002 월드컵 한국 대표팀 히딩크 감독의 국적은?','["독일", "네덜란드", "덴마크", "벨기에"]'::jsonb,1,'네덜란드 출신이에요','히딩크 감독, 어느 나라 사람이었을까요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',1,'mc','1988 서울 올림픽의 마스코트는?','["반다비", "꿈돌이", "호돌이", "수호랑"]'::jsonb,2,'꿈돌이는 93 대전 엑스포, 수호랑·반다비는 2018 평창이에요','88 올림픽 마스코트, 기억하세요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','1993 대전 엑스포의 마스코트는?','["수호랑", "꿈돌이", "호돌이", "반다비"]'::jsonb,1,'외계에서 온 아기 요정 콘셉트였어요','수학여행으로 엑스포 다녀오신 분 손!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',1,'mc','삐삐 숫자 "8282"의 뜻은?','["잘 자", "보고 싶어", "사랑해", "빨리빨리"]'::jsonb,3,'"1004"는 천사, "486"은 사랑해','삐삐 세대 나와 주세요. 손이 먼저 기억할 거예요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','서태지와 아이들의 데뷔곡은?','["하여가", "교실 이데아", "컴백홈", "난 알아요"]'::jsonb,3,'1992년, 회오리 춤의 시작','회오리 춤 추실 수 있는 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','1995년 "귀가시계"라 불린 드라마 "모래시계"의 방송사는?','["EBS", "SBS", "MBC", "KBS"]'::jsonb,1,'방송 시간엔 거리가 텅 빌 정도였어요','이 드라마 할 땐 다들 집에 일찍 들어갔다죠?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','"응답하라 1994"의 주무대는?','["쌍문동 골목", "대학로 극장", "신촌 하숙집", "건대 자취방"]'::jsonb,2,'신촌 하숙집, 쓰레기와 나정이','응사 보신 분들은 바로 아실 거예요.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',1,'mc','"응답하라 1988"의 배경이 된 동네는?','["신촌", "봉천동", "성수동", "쌍문동"]'::jsonb,3,'덕선이네 골목, 쌍문동이었죠','응팔 정주행하신 분들 손!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','1994년 드라마 "마지막 승부"의 소재가 된 스포츠는?','["축구", "농구", "배구", "야구"]'::jsonb,1,'장동건·손지창, 그리고 농구 붐','"마지막 승부" 주제곡 흥얼거리실 수 있는 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','만화 "슬램덩크" 강백호의 등번호는?','["7번", "4번", "11번", "10번"]'::jsonb,3,'서태웅이 11번, 채치수가 4번이에요','농구 좀 하셨던 분들, 등번호 기억나세요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','"포기하면 그 순간이 바로 시합 종료예요." 슬램덩크에서 이 말을 한 사람은?','["채치수", "서태웅", "안 선생님", "강백호"]'::jsonb,2,'북산고 안 선생님의 명대사','인생 명언 하나 갑니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',1,'ox','싸이월드 화폐 이름은 "도토리"였다.','[]'::jsonb,0,'미니홈피 BGM 사려고 충전하셨죠?','도토리 충전해 보신 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','스타크래프트에서 "show me the money"를 입력하면?','["유닛이 무적이 된다", "건설이 바로 끝난다", "자원이 생긴다", "맵이 다 보인다"]'::jsonb,2,'PC방 시간당 1,000원이던 시절','PC방 좀 다니신 분들은 바로 아실 겁니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',3,'mc','스타크래프트 치트키 "power overwhelming"의 효과는?','["자원 획득", "빠른 건설", "맵 전체 보기", "유닛 무적"]'::jsonb,3,'"black sheep wall"은 맵 보기, "operation cwal"은 빠른 건설','이건 진짜 고수만 압니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('추억',2,'mc','1997년 IMF 구제금융을 신청할 당시 대통령은?','["김영삼", "김대중", "노태우", "전두환"]'::jsonb,0,'1997년 12월, 김영삼 정부 때예요','조금 무거운 문제지만, 다들 기억하실 겁니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',2,'mc','"중꺾마"의 뜻은?','["중요한 건 꺾이지 않는 마음", "중년은 꺾여도 마음은 청춘", "중간에 꺾으면 마이너스", "중식은 꺾어 먹어야 제맛"]'::jsonb,0,'2022년 롤드컵 데프트 선수 인터뷰에서 퍼진 말이에요','요즘 말 테스트입니다. 막내들은 쉽겠지만, 부장님은요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',2,'mc','"스불재"의 뜻은?','["스페셜 불금 재미", "스스로 불러온 재앙", "스트레스 불태우는 재택", "스타일 불타는 재력가"]'::jsonb,1,'야근 자청했다가 후회할 때 딱이에요','오늘 2차 가서 쓸 수도 있는 말입니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',1,'ox','"킹받네"는 "기분이 아주 좋다"는 뜻이다.','[]'::jsonb,1,'"열받네"를 더 세게 말한 거예요','단어만 보면 좋아 보이는데요…') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',1,'mc','"점메추"의 뜻은?','["점잖게 메모 추가", "점심 메뉴 추천", "점수 메기기 추가", "점점 메말라 가는 추억"]'::jsonb,1,'점심 고민될 때 단톡방에 "점메추!"','이건 우리 매일 하는 거예요.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',2,'mc','"갓생"의 뜻은?','["갓 쓰고 사는 선비의 삶", "갓 태어난 신입의 삶", "신을 믿는 생활", "부지런하고 알차게 사는 삶"]'::jsonb,3,'"갓생 산다" = 아침 운동하고 책 읽는 그런 삶','오늘 회식은 갓생일까요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',3,'mc','"알잘딱깔센"의 뜻은?','["알아서 잘 딱 깔끔하고 센스 있게", "알고 보면 잘생긴 딱 깔끔한 센스남", "알바 잘하면 딱 깔끔한 센터", "알람 잘 딱 깔고 센스 있게 기상"]'::jsonb,0,'일 잘하는 사람의 정석','팀장님이 제일 좋아하실 단어입니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',2,'mc','"삼귀다"의 뜻은?','["세 번째 사귄 사람", "사귀기 전 썸 타는 단계", "삼겹살 먹으며 친해짐", "셋이 함께 어울림"]'::jsonb,1,'"사귀다"의 "사(4)"보다 하나 모자란 "삼(3)"','숫자 말장난입니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',3,'mc','"뇌절"의 뜻은?','["갑자기 아이디어가 떠오름", "머리가 너무 좋아 끊김", "회의 중 졸음", "같은 말이나 행동을 질리게 반복함"]'::jsonb,3,'아재 개그 세 번째부터가 뇌절이에요','회식 자리에서 특히 조심해야 할 것!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',3,'mc','"추구미"의 뜻은?','["추억 속 구미호", "내가 추구하는 이미지", "추천받은 구내식당 메뉴", "추가로 구매한 미용품"]'::jsonb,1,'"내 추구미는 꾸안꾸"처럼 써요','이건 MZ 고수용입니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',2,'mc','"어쩔티비"의 뜻은?','["어쩌다 TV 출연", "어쩌라고, 가서 TV나 봐", "어쩐지 TV가 재밌더라", "어쩔 수 없이 TV 시청"]'::jsonb,1,'"저쩔티비"로 받아치면 고수','이 말 들으면 킹받는 분들 계시죠?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',3,'mc','"무지성"의 뜻은?','["성실하게 무조건 함", "지성이 넘쳐흐름", "무지개처럼 다양함", "깊이 생각하지 않고 그냥 함"]'::jsonb,3,'"무지성 결제" 같은 데 써요','이 문제는 무지성으로 찍지 마세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('요즘 말',1,'mc','MBTI에서 "E"가 뜻하는 것은?','["외향형", "감정형", "계획형", "직관형"]'::jsonb,0,'I는 내향형. 회식 자리 E들의 시간입니다','우리 부서는 E가 많을까요, I가 많을까요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',1,'mc','"1박 2일" 복불복의 대표 벌칙 음료는?','["까나리 액젓", "홍초", "매실 원액", "사과 식초"]'::jsonb,0,'한 모금이면 바로 표정 관리 실패','일요일 저녁 생각나시죠?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',1,'mc','"런닝맨"에서 상대를 탈락시키려면 등에 붙은 무엇을 떼야 할까?','["스티커", "번호표", "손목 밴드", "이름표"]'::jsonb,3,'이름표 뜯기, 해 본 분?','오늘 회식 끝나고 해 볼까요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','초성 퀴즈! "ㄱㄴㅅㅌㅇ", 2012년 전 세계가 말춤을 춘 노래는?','["젠틀맨", "강남스타일", "챔피언", "새"]'::jsonb,1,'유튜브 조회수 10억을 처음 넘긴 뮤직비디오','신서유기 초성 퀴즈 스타일로 갑니다!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','초성 퀴즈! "ㅁㅎㄷㅈ", 토요일 저녁을 책임졌던 이 예능은?','["무엇이든 물어보살", "무릎팍도사", "미운 우리 새끼", "무한도전"]'::jsonb,3,'"무모한 도전"에서 시작했어요','초성만 보고 맞혀 보세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','초성 퀴즈! "ㄴㅁㅎㄴ", 유재석의 부캐들이 탄생한 이 예능은?','["놀면 뭐하니?", "놀라운 토요일", "나 혼자 산다", "냉장고를 부탁해"]'::jsonb,0,'유산슬, 유두래곤, 지미유의 고향','부캐 부자 유재석!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','"무한도전" 마지막 회가 방송된 해는?','["2019년", "2016년", "2018년", "2017년"]'::jsonb,2,'2018년 3월, 13년 만의 마무리','무도 마지막 회, 보면서 우신 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','"무한도전" 무한상사에서 유재석의 직급은?','["과장", "사장", "부장", "대리"]'::jsonb,2,'유 부장! 정 과장, 하 사원…','우리 회사 얘기 같은 그 콩트!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','"놀면 뭐하니?"에서 유재석의 트로트 가수 이름은?','["유고스타", "유두래곤", "유산슬", "지미유"]'::jsonb,2,'유고스타는 드러머, 유두래곤은 싹쓰리, 지미유는 제작자','"합정역 5번 출구" 아시는 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',3,'mc','다음 중 "싹쓰리" 멤버가 아닌 사람은?','["유재석", "비", "엄정화", "이효리"]'::jsonb,2,'엄정화는 환불원정대 멤버예요','2020년 여름을 쓸어 담은 그 그룹!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',3,'mc','다음 중 "환불원정대" 멤버가 아닌 사람은?','["선미", "제시", "엄정화", "화사"]'::jsonb,0,'엄정화·이효리·제시·화사, 제작자는 지미유','언니들의 그 그룹!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',1,'mc','"전국노래자랑"을 34년 동안 진행한 국민 MC는?','["이상벽", "허참", "임성훈", "송해"]'::jsonb,3,'"전국~ 노래자랑!"','일요일 낮 12시 10분의 그분!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','"가족오락관"을 오래 진행한 MC는?','["허참", "송해", "이덕화", "주병진"]'::jsonb,0,'"몇 대 몇!" 하던 그분','고요 속의 외침, 기억나세요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','"오징어 게임" 첫 번째 게임은?','["무궁화 꽃이 피었습니다", "줄다리기", "구슬치기", "딱지치기"]'::jsonb,0,'딱지치기는 게임 전 모집할 때 나왔어요','영희 인형 기억나시죠?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','"오징어 게임" 주인공 성기훈의 참가 번호는?','["456번", "067번", "001번", "218번"]'::jsonb,0,'1번은 오일남, 67번 강새벽, 218번 조상우','마지막 번호였죠!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('예능',2,'mc','드라마 "더 글로리"에서 복수를 준비하는 주인공 이름은?','["하도영", "전재준", "문동은", "박연진"]'::jsonb,2,'"연진아~"','"멋지다, 연진아!" 아시는 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','10원짜리 동전에 새겨진 탑은?','["미륵사지 석탑", "첨성대", "다보탑", "석가탑"]'::jsonb,2,'불국사 다보탑이에요','지갑에 10원짜리 있는 분, 보지 마세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',3,'mc','1만 원권 뒷면에 그려진 것은?','["다보탑", "매화", "혼천의", "거북선"]'::jsonb,2,'조선의 천체 관측기구, 혼천의','지금 지갑 꺼내면 반칙입니다!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','우리나라 최초의 고속도로는?','["경인고속도로", "영동고속도로", "호남고속도로", "경부고속도로"]'::jsonb,0,'1968년 개통, 경부는 1970년','드라이브 좋아하시는 분들!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','골프에서 파(Par)보다 1타 적게 치면?','["이글", "보기", "알바트로스", "버디"]'::jsonb,3,'2타 적으면 이글, 1타 많으면 보기','주말 골퍼분들 나오세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',3,'mc','골프에서 파(Par)보다 2타 적게 치면?','["이글", "버디", "홀인원", "알바트로스"]'::jsonb,0,'3타 적으면 알바트로스','이건 싱글 치시는 분만!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','바둑판의 가로·세로 줄 수는?','["15줄", "19줄", "21줄", "17줄"]'::jsonb,1,'19×19 = 361개의 교차점','"응답하라 1988" 택이를 떠올려 보세요.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','한국 프로야구가 출범한 해는?','["1982년", "1979년", "1985년", "1988년"]'::jsonb,0,'"어린이에게 꿈을, 젊은이에게 낭만을"','야구팬들 준비되셨나요?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',3,'mc','야구에서 "사이클링 히트"란?','["한 경기에서 단타·2루타·3루타·홈런을 모두 침", "3연타석 홈런", "한 이닝에 타자 일순", "한 경기 무안타"]'::jsonb,0,'KBO에서도 손에 꼽을 만큼 드문 기록','야구 고수만 아는 용어!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',1,'mc','마라톤 풀코스의 거리는?','["42km", "45km", "40km", "42.195km"]'::jsonb,3,'1908년 런던 올림픽 때 굳어진 거리','회식 다음 날 아침 조깅 하실 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','월드컵 최다 우승국은?','["독일", "이탈리아", "아르헨티나", "브라질"]'::jsonb,3,'브라질 5회 우승','축구 좋아하시는 분들 나오세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'mc','올림픽 오륜기에 없는 색은?','["노랑", "보라", "초록", "파랑"]'::jsonb,1,'파랑·노랑·검정·초록·빨강, 그리고 흰 바탕','오륜기 떠올려 보세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'ox','라거 맥주는 비교적 낮은 온도에서 하면발효로 만든다.','[]'::jsonb,0,'에일은 상면발효, 라거는 하면발효','맥주 한 잔 드시면서 풀어 보세요!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',2,'ox','"샴페인"은 프랑스 상파뉴 지역의 이름에서 왔다.','[]'::jsonb,0,'다른 지역 스파클링 와인은 샴페인이라 부를 수 없어요','건배 전에 한 문제!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('상식',3,'mc','국보 1호로 불렸던 문화재는?','["석굴암", "훈민정음", "흥인지문", "숭례문"]'::jsonb,3,'2021년부터 지정 번호는 없어졌어요','남대문 하면 떠오르는 그것!') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('베팅',3,'mc','1997년 IMF 때 "금 모으기 운동"으로 모인 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 500톤", "약 227톤"]'::jsonb,3,'약 350만 명이 참여했어요','마지막 문제! 지금까지 모은 점수를 걸고 역전을 노려 보세요.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('베팅',3,'mc','경부고속도로가 개통된 해는?','["1973년", "1977년", "1968년", "1970년"]'::jsonb,3,'1968년 착공, 1970년 7월 개통','마지막 문제! 점수를 걸고 갑니다.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('베팅',3,'mc','여의도 63빌딩이 완공된 해는?','["1988년", "1981년", "1992년", "1985년"]'::jsonb,3,'88 올림픽 직전, 당시 아시아 최고층','마지막 문제! 올인하실 분?') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('베팅',3,'mc','KTX가 처음 개통한 해는?','["2004년", "2007년", "2002년", "2000년"]'::jsonb,0,'2004년 4월 경부선·호남선 개통','마지막 문제! 걸 만큼 걸어 보세요.') on conflict (q) do nothing;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host) values ('베팅',3,'mc','한국 프로야구 원년(1982년) 우승팀은?','["OB 베어스", "삼성 라이온즈", "해태 타이거즈", "MBC 청룡"]'::jsonb,0,'한국시리즈에서 삼성을 꺾었어요','마지막 문제! 야구팬의 역전 찬스!') on conflict (q) do nothing;
 insert into hq_config (id, pin_hash) values (1, extensions.crypt('1234', extensions.gen_salt('bf'))) on conflict (id) do nothing;

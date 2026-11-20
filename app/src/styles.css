@@ -298,6 +298,13 @@ svg { flex-shrink: 0; }
 .admin-sticky .sbar .track { background: var(--ink-3); border-radius: 6px; overflow: hidden; }
 .admin-sticky .go { padding: 12px 16px; font-size: 17px; margin-left: auto; }
 .warn { display: flex; gap: 8px; align-items: center; color: #ffc2c4; font-size: 14px; font-weight: 700; }
+.bank { border: 1px solid rgb(255 181 71 / 0.35); background: rgb(255 181 71 / 0.06); border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+.bank-head { display: grid; gap: 2px; margin-bottom: 10px; } .bank-head small { color: var(--mute); font-size: 13px; }
+.bank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.admin input[type=checkbox] { width: auto; margin: 0 6px 0 0; padding: 0; vertical-align: -2px; }
+.bank-cat { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: var(--ink); border-radius: 10px; padding: 6px 6px 6px 10px; font-size: 14px; font-weight: 700; }
+.bank-cat span { white-space: nowrap; } .bank-cat small { color: var(--mute); font-weight: 500; }
+.stepper.sm button { width: 34px; height: 36px; font-size: 20px; } .stepper.sm b { min-width: 26px; font-size: 17px; }
 .mini { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 
 @media (max-width: 860px) {
