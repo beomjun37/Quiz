@@ -155,7 +155,7 @@ begin
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
         'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
-        'has_image', exists (select 1 from hq_images where idx = q.idx),
+        'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal,
         'answer', case when revealed then q.answer end,
         'note', case when revealed then q.note end) end,
     'submitted', (select count(*) from hq_answers a where a.qi = s.qi and a.at <= now()),
@@ -278,9 +278,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', '')
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', '')
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
 
@@ -309,7 +309,8 @@ begin
   elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
     return jsonb_build_object(
       'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'note', note, 'host', host) from hq_questions where idx = s.qi),
-      'next', (select jsonb_build_object('idx', idx, 'q', q, 'type', type, 'opts', opts, 'answer', answer, 'host', host, 'is_bet', is_bet)
+      'next', (select jsonb_build_object('idx', idx, 'q', q, 'type', type, 'opts', opts, 'answer', answer, 'host', host, 'is_bet', is_bet,
+               'reveal', reveal, 'has_image', exists (select 1 from hq_images i where i.idx = hq_questions.idx))
                from hq_questions where idx = s.qi + 1),
       'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));
 
