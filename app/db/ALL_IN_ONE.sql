@@ -434,6 +434,9 @@ begin
       on conflict (idx) do update set data = excluded.data;
     end if;
 
+  elsif p_action = 'image_get' then                 -- 진행자 미리보기용: 아무 문제의 사진이나 꺼낸다(PIN 필요)
+    return to_jsonb((select data from hq_images where idx = (p_arg->>'idx')::int));
+
   elsif p_action = 'images_list' then
     return (select coalesce(jsonb_agg(idx order by idx), '[]') from hq_images);
 
@@ -451,6 +454,7 @@ begin
     return jsonb_build_object(
       'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'note', note, 'host', host) from hq_questions where idx = s.qi),
       'next', (select jsonb_build_object('idx', idx, 'q', q, 'type', type, 'opts', opts, 'answer', answer, 'host', host, 'is_bet', is_bet,
+               'round', round, 'note', note, 'limit_sec', limit_sec,
                'reveal', reveal, 'has_image', exists (select 1 from hq_images i where i.idx = hq_questions.idx))
                from hq_questions where idx = s.qi + 1),
       'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));

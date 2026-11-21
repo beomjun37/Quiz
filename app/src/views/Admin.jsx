@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, X as Close } from 'lucide-react'
+import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
+import { QImage } from './Phone'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
 import { errText, fmt, options, trap, REACT_EMOJI } from '../lib/ui'
@@ -15,6 +16,7 @@ export default function Admin() {
   const { view, refetch } = useView(null, 2000)
   const [qr, setQr] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
+  const [preview, setPreview] = useState(null)
   const [images, setImages] = useState([])
   const refreshImages = () => admin('images_list').then(setImages).catch(() => {})
   useEffect(() => { if (ok) refreshImages() }, [ok]) // eslint-disable-line
@@ -72,7 +74,7 @@ export default function Admin() {
         <span>참가<b className="num">{view.players}명</b></span>
         {view.phase === 'q' && <span>제출<b className="num">{view.submitted} / {view.players}명</b></span>}
       </div>
-      <HostCard view={view} admin={admin} />
+      <HostCard view={view} admin={admin} onPreview={(q, idx) => setPreview({ q, idx })} />
       <div style={{ marginTop: 16 }}>
         {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
         {view.phase === 'draw' && <DrawControl view={view} run={run} busy={busy} />}
@@ -121,9 +123,11 @@ export default function Admin() {
       <h2 style={{ marginTop: 28 }}><PencilLine size={20} />문항 편집</h2>
       <QuestionCheck admin={admin} images={images} />
       <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages() }} />
-      <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage} />
+      <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage}
+        onPreview={(q, idx) => setPreview({ q, idx })} />
     </section>
     {qr && <QrOverlay url={base} onClose={() => setQr(false)} />}
+    {preview && <PreviewModal {...preview} admin={admin} hasImage={images.includes(preview.idx)} onClose={() => setPreview(null)} />}
   </div>
 }
 
@@ -147,7 +151,7 @@ function StickyBar({ view, next, phaseKo, busy, run }) {
 }
 
 // 진행자 카드: 지금 단계에서 읽을 멘트 + 정답(참가자보다 먼저) + 다음 문제 미리보기
-function HostCard({ view, admin }) {
+function HostCard({ view, admin, onPreview }) {
   const [cur, setCur] = useState(null)
   useEffect(() => { admin('current').then(setCur).catch(() => {}) }, [view.phase, view.qi]) // eslint-disable-line
   const q = view.question
@@ -194,6 +198,7 @@ function HostCard({ view, admin }) {
       <small>다음 {nx.idx + 1}번{nx.is_bet ? ' (베팅 문제)' : ''}</small>
       <p>{nx.q}</p>
       <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
+      <button className="ghost" style={{ margin: '8px 0 0', display: 'block' }} onClick={() => onPreview(nx, nx.idx)}><Smartphone size={15} style={{ verticalAlign: -2 }} /> 참가자 화면 미리보기</button>
     </div>}
   </div>
 }
@@ -355,4 +360,51 @@ function AutoRehearsal({ admin, view, setMsg }) {
   return running
     ? <button className="ghost" onClick={() => { stop.current = true }}><Square size={15} style={{ verticalAlign: -2 }} /> 자동 리허설 멈추기</button>
     : <button className="ghost" disabled={view.phase !== 'lobby'} onClick={go}><PlayCircle size={15} style={{ verticalAlign: -2 }} /> 자동 리허설 (끝까지 빠르게)</button>
+}
+
+// 참가자 화면 미리보기: 실제 폰 화면과 같은 모양으로 문제·타이머·사진 연출을 재생한다. 점수나 서버 상태는 건드리지 않는다.
+function PreviewModal({ q, idx, admin, hasImage, onClose }) {
+  const limit = q.limit_sec ?? 15
+  const [img, setImg] = useState(undefined)
+  const [start, setStart] = useState(() => Date.now())
+  const [now, setNow] = useState(Date.now())
+  const [reveal, setReveal] = useState(false)
+  useEffect(() => { if (hasImage) admin('image_get', { idx }).then((d) => setImg(d ?? null)).catch(() => setImg(null)) }, [idx, hasImage]) // eslint-disable-line
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t) }, [])
+  const left = reveal ? 0 : Math.max(0, limit - (now - start) / 1000)
+  const pq = { ...q, idx, has_image: hasImage, limit_sec: limit }
+  const opts = options(pq)
+  const ox = q.type === 'ox'
+  return <div className="qr-overlay" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
+    <div className="preview" onClick={(e) => e.stopPropagation()}>
+      <div className="preview-bar">
+        <b>참가자 화면 미리보기 · {idx + 1}번</b>
+        <button aria-label="닫기" onClick={onClose}><Close size={20} /></button>
+      </div>
+      <div className="phone preview-phone">
+        <div className="statusbar"><div className="me-chip"><span>미리보기</span></div><div className="score-chip num">0<small>점 · 1위</small></div></div>
+        <div className="round">{q.round} · {idx + 1}번</div>
+        {!reveal && <div className={`timer ${left <= 5 ? 'hurry' : ''}`}>
+          <div className="bar"><i style={{ width: `${(left / limit) * 100}%` }} /></div><b className="num">{Math.ceil(left)}</b></div>}
+        <h1 className="title">{q.q}</h1>
+        {q.type === 'survey' && <p className="rule-hint">다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
+        {q.type === 'minority' && <p className="rule-hint">소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
+        {q.type === 'poll' && <p className="lead">정답 없는 투표예요. 점수엔 영향 없어요.</p>}
+        {hasImage && (img === undefined ? <div className="qimg"><span className="lead">사진 불러오는 중…</span></div>
+          : img ? <QImage q={pq} left={reveal ? null : left} src={img} /> : null)}
+        <div className={`choices ${ox ? 'ox' : ''}`}>
+          {opts.map(([lbl, k, bg, dark], i) => {
+            const dim = reveal && q.answer != null && i !== q.answer
+            return <div key={i} className={`choice ${dark ? 'dark' : ''}`} style={{ background: bg, opacity: dim ? 0.3 : 1, outline: reveal && i === q.answer ? '4px solid #fff' : 'none', ...(ox ? { fontSize: 56, minHeight: 120 } : {}) }}>
+              {ox ? lbl : <><span className="k">{k}</span>{lbl}</>}</div>
+          })}
+        </div>
+        {reveal && q.note && <div className="panel note"><span>{q.note}</span></div>}
+      </div>
+      <div className="preview-actions">
+        <button className="ghost" onClick={() => { setReveal(false); setStart(Date.now()) }}><RotateCw size={15} style={{ verticalAlign: -2 }} /> 처음부터 재생</button>
+        <button className="ghost" onClick={() => setReveal((r) => !r)}><Eye size={15} style={{ verticalAlign: -2 }} /> {reveal ? '문제 화면' : '정답 화면'}</button>
+      </div>
+    </div>
+  </div>
 }

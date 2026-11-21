@@ -311,6 +311,12 @@ svg { flex-shrink: 0; }
 .check-res { margin-top: 8px; display: grid; gap: 4px; font-size: 14px; }
 .check-res p { margin: 0; display: flex; gap: 6px; align-items: center; }
 .check-res .err { color: #ffc2c4; background: none; padding: 0; } .check-res .warn { color: var(--beer); } .check-res .ok { color: var(--soju); font-weight: 700; }
+.preview { background: var(--ink); border: 1px solid var(--line); border-radius: 24px; width: min(94vw, 420px); max-height: 94dvh; overflow: auto; }
+.preview-bar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--ink-2); border-bottom: 1px solid var(--line); }
+.preview-bar button { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--ink-3); }
+.preview-phone { min-height: 0; padding-bottom: 12px; }
+.preview-actions { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 10px 14px; background: var(--ink-2); border-top: 1px solid var(--line); }
+.preview-actions .ghost { margin: 0; }
 .mini { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 
 @media (max-width: 860px) {
