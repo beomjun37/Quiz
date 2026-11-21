@@ -89,6 +89,9 @@ export default function Admin() {
       <h3>리허설 (가상 참가자)</h3>
       {[20, 50, 100].map((n) => <button key={n} className="ghost" onClick={() => run('bots', { n })}><Users size={15} style={{ verticalAlign: -2 }} /> {n}명 채우기</button>)}
       <AutoRehearsal admin={admin} view={view} setMsg={setMsg} />
+      <a className="ghost sim-link" href={`${base}#/sim`} target="_blank" rel="noreferrer"
+        onClick={() => { try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } }}>
+        <Smartphone size={15} style={{ verticalAlign: -2 }} /> 혼자 끝까지 풀어 보기 (참가자로 연습)</a>
 
       <h3>참가자 접속 (단톡방 링크 또는 QR)</h3>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, wordBreak: 'break-all', flexWrap: 'wrap' }}>

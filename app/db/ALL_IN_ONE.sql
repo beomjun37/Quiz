@@ -107,6 +107,9 @@ alter table hq_bank alter column answer drop not null;
 alter table hq_bank drop constraint if exists hq_bank_type_check;
 alter table hq_bank add constraint hq_bank_type_check check (type in ('ox','mc','survey','minority'));
 
+-- 마무리 화면 맨 아래 작은 글씨(사진 출처 등)
+alter table hq_state add column if not exists end_credits text not null default '';
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;
@@ -311,7 +314,7 @@ begin
         from hq_players where active order by score desc, created_at limit 10) x),
     'winners', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'is_me', id = p_player)), '[]') from hq_players where id = any(s.winner_ids)),
     'lucky_all', case when s.phase in ('draw','end') then (select coalesce(jsonb_agg(name order by name), '[]') from hq_players where won) end,
-    'end_msg', s.end_msg,
+    'end_msg', s.end_msg, 'end_credits', case when s.phase = 'end' then s.end_credits end,
     'reactions', case when revealed then (select coalesce(jsonb_object_agg(kind, n), '{}') from hq_reactions where qi = s.qi) end,
     'end_stats', case when s.phase = 'end' then jsonb_build_object(
         'streak_king', (select jsonb_build_object('name', name, 'n', max_streak) from hq_players where max_streak > 0 order by max_streak desc, score desc limit 1),

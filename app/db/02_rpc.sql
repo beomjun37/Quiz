@@ -171,7 +171,7 @@ begin
         from hq_players where active order by score desc, created_at limit 10) x),
     'winners', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'is_me', id = p_player)), '[]') from hq_players where id = any(s.winner_ids)),
     'lucky_all', case when s.phase in ('draw','end') then (select coalesce(jsonb_agg(name order by name), '[]') from hq_players where won) end,
-    'end_msg', s.end_msg,
+    'end_msg', s.end_msg, 'end_credits', case when s.phase = 'end' then s.end_credits end,
     'reactions', case when revealed then (select coalesce(jsonb_object_agg(kind, n), '{}') from hq_reactions where qi = s.qi) end,
     'end_stats', case when s.phase = 'end' then jsonb_build_object(
         'streak_king', (select jsonb_build_object('name', name, 'n', max_streak) from hq_players where max_streak > 0 order by max_streak desc, score desc limit 1),

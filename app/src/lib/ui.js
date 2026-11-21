@@ -51,3 +51,10 @@ export function trap(q, dist) {
   if (best < 0 || total === 0 || dist[best] / total < 0.2) return null
   return { label: options(q)[best][0], n: dist[best] }
 }
+
+// 사진 연출 값: 'zoom', 'zoom@0.35,0.53'(확대 시작 위치), 'blur', 'pixel', 'silhouette'
+export function revealOf(q) {
+  const [mode = '', at] = String(q?.reveal ?? '').split('@')
+  const [x, y] = (at ?? '0.5,0.5').split(',').map(Number)
+  return { mode, x: Number.isFinite(x) ? x : 0.5, y: Number.isFinite(y) ? y : 0.5 }
+}
