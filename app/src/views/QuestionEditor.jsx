@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp, Braces, ImagePlus, Plus, Save, Trash2 } from 'lucide-react'
 
-const TYPES = [['mc', '4지선다'], ['ox', 'O / X'], ['poll', '투표']]
+const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
+const NO_ANSWER = ['poll', 'survey', 'minority']
 const LIMITS = [10, 15, 20, 30]
 // 부장님 마음 맞히기 템플릿: 넣은 뒤 부장님께 받은 답으로 정답만 찍으면 된다.
 const BOSS = [
@@ -25,7 +26,7 @@ const fromServer = (r) => ({
 const toServer = (e) => ({
   round: e.round.trim(), type: e.type, q: e.q.trim(), note: e.note.trim(), host: e.host.trim(),
   opts: e.type === 'ox' ? [] : e.opts.map((o) => o.trim()),
-  answer: e.type === 'poll' ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal, pinned: e.pinned,
+  answer: NO_ANSWER.includes(e.type) ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal, pinned: e.pinned,
 })
 
 function problems(list) {
@@ -34,7 +35,7 @@ function problems(list) {
     const n = `${i + 1}번`
     if (!e.q.trim()) out.push(`${n}: 문제를 적어 주세요`)
     if (e.type !== 'ox' && e.opts.some((o) => !o.trim())) out.push(`${n}: 보기 4개를 모두 채워 주세요`)
-    if (e.type !== 'poll' && (e.answer == null || e.answer < 0)) out.push(`${n}: 정답을 골라 주세요`)
+    if (!NO_ANSWER.includes(e.type) && (e.answer == null || e.answer < 0)) out.push(`${n}: 정답을 골라 주세요`)
   })
   if (list.filter((e) => e.is_bet).length > 1) out.push('베팅 문제는 하나만 둘 수 있어요')
   return out
@@ -90,8 +91,10 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage }
           <button type="button" aria-label="삭제" onClick={() => remove(i)}><Trash2 size={16} /></button>
         </div>
         <div className="seg">{TYPES.map(([v, l]) => (
-          <button type="button" key={v} className={e.type === v ? 'on' : ''} onClick={() => edit(i, { type: v, answer: v === 'poll' ? null : 0, is_bet: v === 'poll' ? false : e.is_bet })}>{l}</button>))}
+          <button type="button" key={v} className={e.type === v ? 'on' : ''} onClick={() => edit(i, { type: v, answer: NO_ANSWER.includes(v) ? null : (e.answer ?? 0), is_bet: v === 'poll' ? false : e.is_bet })}>{l}</button>))}
         </div>
+        {e.type === 'survey' && <p className="lead" style={{ fontSize: 13, margin: 0 }}>다수결: 정답은 공개할 때 가장 많이 고른 보기로 정해져요</p>}
+        {e.type === 'minority' && <p className="lead" style={{ fontSize: 13, margin: 0 }}>소수결: 정답은 공개할 때 가장 적게 고른 보기로 정해져요</p>}
         <textarea className="qe-q" rows={2} placeholder="문제" value={e.q} onChange={(ev) => edit(i, { q: ev.target.value })} />
         {e.type === 'ox'
           ? <div className="qe-ox">{['O', 'X'].map((l, k) => (
@@ -109,7 +112,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage }
           <label>제한 시간 <select value={e.limit_sec} onChange={(ev) => edit(i, { limit_sec: +ev.target.value })}>
             {LIMITS.map((s) => <option key={s} value={s}>{s}초</option>)}</select></label>
           <label>사진 연출 <select value={e.reveal} onChange={(ev) => edit(i, { reveal: ev.target.value })}>
-            <option value="">그대로</option><option value="zoom">확대 → 점점 작게</option><option value="blur">흐림 → 점점 선명</option></select></label>
+            <option value="">그대로</option><option value="zoom">확대 → 점점 작게</option><option value="blur">흐림 → 점점 선명</option><option value="pixel">모자이크 → 점점 선명</option><option value="silhouette">그림자 → 원본</option></select></label>
           <label title="랜덤 세트를 다시 만들어도 이 문제는 남아요"><input type="checkbox" checked={e.pinned} onChange={(ev) => edit(i, { pinned: ev.target.checked })} /> 고정</label>
           {e.type !== 'poll' && <label><input type="checkbox" checked={e.is_bet} onChange={(ev) => edit(i, { is_bet: ev.target.checked })} /> 베팅 문제</label>}
           {!dirty && <label className="qe-img"><ImagePlus size={16} /> {images.includes(i) ? '사진 바꾸기' : '사진 붙이기'}
