@@ -107,6 +107,9 @@ alter table hq_bank alter column answer drop not null;
 alter table hq_bank drop constraint if exists hq_bank_type_check;
 alter table hq_bank add constraint hq_bank_type_check check (type in ('ox','mc','survey','minority'));
 
+-- 마무리 화면 맨 아래 작은 글씨(사진 출처 등)
+alter table hq_state add column if not exists end_credits text not null default '';
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;

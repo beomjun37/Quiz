@@ -106,12 +106,13 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
                   : <span>{k + 1}</span>}
                 <input placeholder={`보기 ${k + 1}`} value={o} onChange={(ev) => edit(i, { opts: e.opts.map((x, j) => (j === k ? ev.target.value : x)) })} />
               </div>))}</div>}
+        {e.reveal.startsWith('zoom') && images.includes(i) && !dirty && <FocusPicker admin={admin} idx={i} value={e.reveal} onPick={(v) => edit(i, { reveal: v })} />}
         <input placeholder="해설 (정답 공개 때 보여요)" value={e.note} onChange={(ev) => edit(i, { note: ev.target.value })} />
         <input placeholder="진행자 멘트 (문제 열 때 읽을 말, 선택)" value={e.host} onChange={(ev) => edit(i, { host: ev.target.value })} />
         <div className="qe-foot">
           <label>제한 시간 <select value={e.limit_sec} onChange={(ev) => edit(i, { limit_sec: +ev.target.value })}>
             {LIMITS.map((s) => <option key={s} value={s}>{s}초</option>)}</select></label>
-          <label>사진 연출 <select value={e.reveal} onChange={(ev) => edit(i, { reveal: ev.target.value })}>
+          <label>사진 연출 <select value={e.reveal.split('@')[0]} onChange={(ev) => edit(i, { reveal: ev.target.value })}>
             <option value="">그대로</option><option value="zoom">확대 → 점점 작게</option><option value="blur">흐림 → 점점 선명</option><option value="pixel">모자이크 → 점점 선명</option><option value="silhouette">그림자 → 원본</option></select></label>
           <label title="랜덤 세트를 다시 만들어도 이 문제는 남아요"><input type="checkbox" checked={e.pinned} onChange={(ev) => edit(i, { pinned: ev.target.checked })} /> 고정</label>
           {e.type !== 'poll' && <label><input type="checkbox" checked={e.is_bet} onChange={(ev) => edit(i, { is_bet: ev.target.checked })} /> 베팅 문제</label>}
@@ -134,5 +135,23 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
       <button className="ghost" onClick={() => setJson(JSON.stringify(list.map(toServer), null, 1))}><Braces size={15} style={{ verticalAlign: -2 }} /> JSON</button>
     </div>
     {dirty && <p className="lead" style={{ fontSize: 13 }}>사진은 저장한 뒤에 붙일 수 있어요(문항 번호가 정해져야 해서요).</p>}
+  </div>
+}
+
+// 확대 문제의 시작 위치 고르기: 사진에서 처음에 크게 보여 줄 부위(귀, 눈, 입꼬리 등)를 누른다
+function FocusPicker({ admin, idx, value, onPick }) {
+  const [src, setSrc] = useState(null)
+  useEffect(() => { admin('image_get', { idx }).then(setSrc).catch(() => {}) }, [idx]) // eslint-disable-line
+  const [, at] = value.split('@'); const [x, y] = (at ?? '0.5,0.5').split(',').map(Number)
+  if (!src) return null
+  return <div className="focus">
+    <small>확대 시작 위치: 사진에서 처음에 보여 줄 부위를 눌러 주세요 (귀·눈·입꼬리처럼 작은 부위일수록 어려워요)</small>
+    <div className="focus-img" onClick={(ev) => {
+      const r = ev.currentTarget.getBoundingClientRect()
+      onPick(`zoom@${((ev.clientX - r.left) / r.width).toFixed(2)},${((ev.clientY - r.top) / r.height).toFixed(2)}`)
+    }}>
+      <img src={src} alt="확대 시작 위치 고르기" />
+      <i style={{ left: `${x * 100}%`, top: `${y * 100}%` }} />
+    </div>
   </div>
 }

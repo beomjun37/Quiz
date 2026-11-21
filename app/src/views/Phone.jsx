@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, randomNick, trap, REACT_EMOJI } from '../lib/ui'
+import { errText, fmt, options, randomNick, trap, REACT_EMOJI, revealOf } from '../lib/ui'
 import { serverNow } from '../lib/clock'
 import { fx, unlockAudio } from '../lib/fx'
 
@@ -153,7 +153,8 @@ export function QImage({ q, left, src: given }) {
     return () => { dead = true }
   }, [q.idx, q.has_image])
   const t = left == null ? 0 : Math.max(0, Math.min(1, left / q.limit_sec))  // 1 → 0
-  const pixel = q.reveal === 'pixel' && t > 0
+  const rv = revealOf(q)
+  const pixel = rv.mode === 'pixel' && t > 0
   // 모자이크: 작은 캔버스에 그린 뒤 부드럽게 하지 않고 키운다. 칸 크기 48px → 1px
   useEffect(() => {
     if (!pixel || !src || !canvas.current) return
@@ -173,10 +174,11 @@ export function QImage({ q, left, src: given }) {
   if (!q.has_image) return null
   if (!src) return <div className="qimg"><span className="lead">사진 불러오는 중…</span></div>
   if (pixel) return <div className="qimg"><canvas ref={canvas} aria-label="모자이크 문제 사진" /></div>
-  const style = q.reveal === 'zoom' ? { transform: `scale(${1 + 3 * t})` }
-    : q.reveal === 'blur' ? { filter: `blur(${Math.round(24 * t)}px)` }
+  // 확대: 8배에서 시작해 진행자가 고른 부위(귀·눈 등)만 보이다가, 시간이 갈수록 천천히 전체가 드러난다
+  const style = rv.mode === 'zoom' ? { transform: `scale(${1 + 7 * Math.pow(t, 1.4)})`, transformOrigin: `${rv.x * 100}% ${rv.y * 100}%` }
+    : rv.mode === 'blur' ? { filter: `blur(${Math.round(24 * t)}px)` }
     // 그림자: 흑백 고대비로 윤곽만 보이다가(처음 60%), 남은 시간 동안 원래 색으로 돌아온다
-    : q.reveal === 'silhouette' && t > 0 ? (() => { const k = t > 0.4 ? 1 : t / 0.4
+    : rv.mode === 'silhouette' && t > 0 ? (() => { const k = t > 0.4 ? 1 : t / 0.4
         return { filter: `grayscale(${k}) contrast(${1 + 11 * k}) brightness(${1 - 0.35 * k})` } })() : undefined
   return <div className="qimg"><img src={src} alt="문제 사진" style={style} /></div>
 }
@@ -411,6 +413,7 @@ function End({ view, me }) {
       </div>
     </div>
     <p className="lead" style={{ textAlign: 'center', fontSize: 15 }}>이 화면을 캡처해서 단톡방에 자랑해 보세요</p>
+    {view.end_credits && <p className="credits">{view.end_credits}</p>}
   </>
 }
 
