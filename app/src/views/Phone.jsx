@@ -142,13 +142,14 @@ function Lobby({ view, me, act, busy, leave }) {
 
 // 사진 연출(제한 시간 동안 점점 쉬워진다). 정답 공개 화면에서는 원본 그대로.
 //   zoom 4배 확대 → 원래 크기 / blur 흐림 → 선명 / pixel 모자이크 → 선명 / silhouette 그림자 → 원본
-function QImage({ q, left }) {
-  const [src, setSrc] = useState(null)
+export function QImage({ q, left, src: given }) {
+  const [fetched, setSrc] = useState(null)
+  const src = given ?? fetched
   const canvas = useRef(null)
   useEffect(() => {
     let dead = false
     setSrc(null)
-    if (q.has_image) rpc('hq_image', { p_idx: q.idx }).then((d) => { if (!dead) setSrc(d) }).catch(() => {})
+    if (q.has_image && given === undefined) rpc('hq_image', { p_idx: q.idx }).then((d) => { if (!dead) setSrc(d) }).catch(() => {})
     return () => { dead = true }
   }, [q.idx, q.has_image])
   const t = left == null ? 0 : Math.max(0, Math.min(1, left / q.limit_sec))  // 1 → 0

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, Braces, ImagePlus, Plus, Save, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Braces, ImagePlus, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
 
 const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
 const NO_ANSWER = ['poll', 'survey', 'minority']
@@ -45,7 +45,7 @@ function problems(list) {
  * 진행자용 문항 편집기. 폰에서도 고칠 수 있게 칸 채우기 방식.
  * 저장은 대기 단계에서만 된다(게임 중 문항이 바뀌면 점수가 꼬이므로 서버가 막는다).
  */
-export default function QuestionEditor({ admin, phase, setMsg, images, onImage }) {
+export default function QuestionEditor({ admin, phase, setMsg, images, onImage, onPreview }) {
   const [list, setList] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [json, setJson] = useState(null)
@@ -118,6 +118,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage }
           {!dirty && <label className="qe-img"><ImagePlus size={16} /> {images.includes(i) ? '사진 바꾸기' : '사진 붙이기'}
             <input type="file" accept="image/*" hidden onChange={(ev) => { onImage(i, ev.target.files?.[0]); ev.target.value = '' }} /></label>}
           {!dirty && images.includes(i) && <button type="button" className="qe-img" onClick={() => onImage(i, null)}><Trash2 size={14} /> 사진 빼기</button>}
+          <button type="button" className="qe-img" onClick={() => onPreview(toServer(e), i)}><Smartphone size={14} /> 미리보기</button>
         </div>
       </fieldset>
     ))}
