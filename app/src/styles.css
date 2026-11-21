@@ -305,6 +305,10 @@ svg { flex-shrink: 0; }
 .bank-cat { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: var(--ink); border-radius: 10px; padding: 6px 6px 6px 10px; font-size: 14px; font-weight: 700; }
 .bank-cat span { white-space: nowrap; } .bank-cat small { color: var(--mute); font-weight: 500; }
 .stepper.sm button { width: 34px; height: 36px; font-size: 20px; } .stepper.sm b { min-width: 26px; font-size: 17px; }
+.check { margin-bottom: 12px; }
+.check-res { margin-top: 8px; display: grid; gap: 4px; font-size: 14px; }
+.check-res p { margin: 0; display: flex; gap: 6px; align-items: center; }
+.check-res .err { color: #ffc2c4; background: none; padding: 0; } .check-res .warn { color: var(--beer); } .check-res .ok { color: var(--soju); font-weight: 700; }
 .mini { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 
 @media (max-width: 860px) {

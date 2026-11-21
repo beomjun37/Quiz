@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, X as Close } from 'lucide-react'
+import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
@@ -86,6 +86,7 @@ export default function Admin() {
 
       <h3>리허설 (가상 참가자)</h3>
       {[20, 50, 100].map((n) => <button key={n} className="ghost" onClick={() => run('bots', { n })}><Users size={15} style={{ verticalAlign: -2 }} /> {n}명 채우기</button>)}
+      <AutoRehearsal admin={admin} view={view} setMsg={setMsg} />
 
       <h3>참가자 접속 (단톡방 링크 또는 QR)</h3>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, wordBreak: 'break-all', flexWrap: 'wrap' }}>
@@ -118,6 +119,7 @@ export default function Admin() {
       )) : <p className="lead">아직 점수가 없어요</p>}
 
       <h2 style={{ marginTop: 28 }}><PencilLine size={20} />문항 편집</h2>
+      <QuestionCheck admin={admin} images={images} />
       <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages() }} />
       <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage} />
     </section>
@@ -260,10 +262,10 @@ function PinChange({ admin, busy, onChanged }) {
 }
 
 // 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(부장님·사진·투표 등)는 그대로 두고 나머지만 새로 뽑는다.
-const CATS = ['추억', '요즘 말', '예능', '상식']
+const CATS = ['추억', '가요', '요즘 말', '예능', '회사', '상식']
 function BankPanel({ admin, phase, setMsg, onDone }) {
   const [stats, setStats] = useState(null)
-  const [counts, setCounts] = useState({ 추억: 3, '요즘 말': 2, 예능: 3, 상식: 2 })
+  const [counts, setCounts] = useState({ 추억: 2, 가요: 2, '요즘 말': 2, 예능: 2, 회사: 1, 상식: 1 })
   const [minDiff, setMinDiff] = useState(2)
   const [bet, setBet] = useState(true)
   useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
@@ -290,4 +292,67 @@ function BankPanel({ admin, phase, setMsg, onDone }) {
     }}><Shuffle size={18} />랜덤 세트 만들기</button>
     <p className="lead num" style={{ fontSize: 13, margin: '6px 0 0' }}>은행에서 {total}문제 + 고정한 문제</p>
   </div>
+}
+
+// 문항 점검: 회식 전에 한 번 눌러 보면 빠진 것을 한꺼번에 알려 준다.
+function QuestionCheck({ admin, images }) {
+  const [res, setRes] = useState(null)
+  async function check() {
+    let list; try { list = await admin('questions_get') } catch { return }
+    const out = []
+    const n = (i) => `${i + 1}번`
+    list.forEach((q, i) => {
+      if (q.reveal && !images.includes(i)) out.push(['err', `${n(i)} 사진 문제인데 사진이 없어요`])
+      if ((q.opts ?? []).some((o) => /^\(이름 \d\)$/.test(String(o).trim()))) out.push(['err', `${n(i)} 보기가 '(이름 1)' 같은 자리 표시예요`])
+      if (q.type !== 'poll' && q.answer == null) out.push(['err', `${n(i)} 정답이 없어요`])
+      if (q.type === 'mc' && new Set(q.opts).size !== q.opts.length) out.push(['err', `${n(i)} 보기가 겹쳐요`])
+      if (q.round.includes('부장님') && !q.host) out.push(['warn', `${n(i)} 부장님 문제: 부장님께 정답 확인하셨나요?`])
+      if (q.q.length > 60) out.push(['warn', `${n(i)} 문제가 길어서 폰에서 3줄 이상이에요`])
+    })
+    const bets = list.filter((q) => q.is_bet)
+    if (bets.length === 0) out.push(['warn', '마지막 올인 베팅 문제가 없어요'])
+    if (bets.length > 1) out.push(['err', '베팅 문제가 2개 이상이에요'])
+    if (bets.length === 1 && !list[list.length - 1].is_bet) out.push(['warn', '베팅 문제가 맨 마지막이 아니에요'])
+    const dup = list.map((q) => q.q).filter((x, i, a) => a.indexOf(x) !== i)
+    if (dup.length) out.push(['err', `같은 문제가 두 번 있어요: ${dup[0].slice(0, 20)}…`])
+    if (list.length < 8) out.push(['warn', `문제가 ${list.length}개라 너무 짧아요 (12~15개 추천)`])
+    if (list.length > 18) out.push(['warn', `문제가 ${list.length}개라 길어요 (12~15개 추천)`])
+    const mins = Math.round(list.reduce((a, q) => a + q.limit_sec + 75, 0) / 60)
+    setRes({ out, total: list.length, mins })
+  }
+  return <div className="check">
+    <button className="ghost" onClick={check}><ClipboardCheck size={15} style={{ verticalAlign: -2 }} /> 문항 점검하기</button>
+    {res && <div className="check-res">
+      <p className="num">총 {res.total}문제 · 예상 진행 시간 약 {res.mins}분</p>
+      {res.out.length === 0 && <p className="ok"><CheckCircle2 size={16} /> 문제 없어요. 바로 진행해도 돼요!</p>}
+      {res.out.map(([lv, t], i) => <p key={i} className={lv}>{lv === 'err' ? <AlertTriangle size={15} /> : '·'} {t}</p>)}
+    </div>}
+  </div>
+}
+
+// 자동 리허설: 가상 참가자 30명으로 첫 문제부터 마무리 화면까지 알아서 넘긴다. 끝나면 새 게임으로 정리.
+function AutoRehearsal({ admin, view, setMsg }) {
+  const [running, setRunning] = useState(false)
+  const stop = useRef(false)
+  const live = useRef(view); live.current = view
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+  async function go() {
+    if (!confirm('자동 리허설을 시작할까요?\n가상 참가자 30명으로 끝까지 빠르게 진행한 뒤, 새 게임으로 정리해요.\n(실제 참가자가 있으면 그분들도 같이 진행돼요)')) return
+    stop.current = false; setRunning(true)
+    try {
+      await admin('bots', { n: 30 })
+      for (let guard = 0; guard < 120 && !stop.current; guard++) {
+        const v = live.current
+        if (v.phase === 'end') break
+        if (v.phase === 'draw') { await admin('draw', { n: 2 }); await wait(4500) }
+        await admin('next', { from_phase: v.phase, from_qi: v.qi })
+        const ph = live.current.phase
+        await wait(ph === 'q' ? 6000 : ph === 'answer' ? 2500 : 2000)
+      }
+      if (!stop.current) { await wait(3000); await admin('reset'); setMsg('자동 리허설 완료! 새 게임으로 정리해 뒀어요') }
+    } catch { /* admin() 이 메시지를 띄운다 */ } finally { setRunning(false) }
+  }
+  return running
+    ? <button className="ghost" onClick={() => { stop.current = true }}><Square size={15} style={{ verticalAlign: -2 }} /> 자동 리허설 멈추기</button>
+    : <button className="ghost" disabled={view.phase !== 'lobby'} onClick={go}><PlayCircle size={15} style={{ verticalAlign: -2 }} /> 자동 리허설 (끝까지 빠르게)</button>
 }

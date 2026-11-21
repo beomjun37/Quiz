@@ -186,7 +186,7 @@ end $$;
 -- 진행자 ----------------------------------------------------------------
 create or replace function hq_admin(p_pin text, p_action text, p_arg jsonb default '{}')
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare s hq_state; nq hq_questions; n int; i int;
+declare s hq_state; nq hq_questions; n int; i int; c_cat text; c_round text;
 begin
   if not exists (select 1 from hq_config where id = 1 and pin_hash = crypt(p_pin, pin_hash)) then
     raise exception 'BAD_PIN';
@@ -325,16 +325,19 @@ begin
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     create temp table _pick (ord serial, round text, type text, q text, opts jsonb, answer int, note text, host text,
       is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int, topic text) on commit drop;
-    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic)
-      select r, b.type, b.q, b.opts, b.answer, b.note, b.host, false, 15, '', false, b.id, nullif(b.topic, '')
-      from (values ('추억', '추억 소환', 1), ('요즘 말', '요즘 말 테스트', 2), ('예능', '예능 소환', 3), ('상식', '상식 퀴즈', 4)) c(cat, r, o)
-      cross join lateral (
-        -- 같은 주제(topic)는 카테고리 안에서 하나만: 주제마다 덜 나온 문제 하나를 고른 뒤 그중에서 뽑는다
-        select * from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
-                       from hq_bank b0 where b0.cat = c.cat and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
-                       order by case when b0.topic = '' then b0.id::text else b0.topic end, b0.used, random()) u
-        order by u.used, random() limit greatest(coalesce((p_arg->'counts'->>c.cat)::int, 0), 0)) b
-      order by c.o, b.diff, random();
+    -- 카테고리를 순서대로 하나씩 뽑는다. 같은 주제(topic)는 세트 전체에서 한 문제만(앞 카테고리에서 나온 주제는 제외).
+    for c_cat, c_round in select * from (values ('추억', '추억 소환'), ('가요', '90년대 가요'), ('요즘 말', '요즘 말 테스트'),
+                                                ('예능', '예능 소환'), ('회사', '회사 생활'), ('상식', '상식 퀴즈')) v(cat, r) loop
+      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic)
+      select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, 15, '', false, u.id, nullif(u.topic, '')
+      from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
+            from hq_bank b0
+            where b0.cat = c_cat and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
+              and (b0.topic = '' or b0.topic not in (select topic from _pick where topic is not null))
+            order by case when b0.topic = '' then b0.id::text else b0.topic end, b0.used, random()) u
+      order by u.used, random()
+      limit greatest(coalesce((p_arg->'counts'->>c_cat)::int, 0), 0);
+    end loop;
     insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx)
       select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx
       from hq_questions where pinned and not is_bet order by idx;
