@@ -101,6 +101,7 @@ create table if not exists hq_bank (
   unique (q)
 );
 alter table hq_bank enable row level security;
+alter table hq_bank add column if not exists topic text not null default '';  -- 같은 주제는 한 세트에 하나만
 
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;

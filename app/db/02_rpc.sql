@@ -324,12 +324,16 @@ begin
     -- p_arg: {"counts": {"추억": 3, ...}, "min_diff": 2, "bet": true}
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     create temp table _pick (ord serial, round text, type text, q text, opts jsonb, answer int, note text, host text,
-      is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int) on commit drop;
-    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
-      select r, b.type, b.q, b.opts, b.answer, b.note, b.host, false, 15, '', false, b.id
+      is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int, topic text) on commit drop;
+    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic)
+      select r, b.type, b.q, b.opts, b.answer, b.note, b.host, false, 15, '', false, b.id, nullif(b.topic, '')
       from (values ('추억', '추억 소환', 1), ('요즘 말', '요즘 말 테스트', 2), ('예능', '예능 소환', 3), ('상식', '상식 퀴즈', 4)) c(cat, r, o)
-      cross join lateral (select * from hq_bank b where b.cat = c.cat and b.diff >= coalesce((p_arg->>'min_diff')::int, 1)
-                          order by b.used, random() limit greatest(coalesce((p_arg->'counts'->>c.cat)::int, 0), 0)) b
+      cross join lateral (
+        -- 같은 주제(topic)는 카테고리 안에서 하나만: 주제마다 덜 나온 문제 하나를 고른 뒤 그중에서 뽑는다
+        select * from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
+                       from hq_bank b0 where b0.cat = c.cat and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
+                       order by case when b0.topic = '' then b0.id::text else b0.topic end, b0.used, random()) u
+        order by u.used, random() limit greatest(coalesce((p_arg->'counts'->>c.cat)::int, 0), 0)) b
       order by c.o, b.diff, random();
     insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx)
       select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx
@@ -337,7 +341,8 @@ begin
     if coalesce((p_arg->>'bet')::boolean, true) then
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
         select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
-        from hq_bank where cat = '베팅' order by used, random() limit 1;
+        from hq_bank where cat = '베팅' and (topic = '' or topic not in (select topic from _pick where topic is not null))
+        order by used, random() limit 1;
     end if;
     if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
     -- 고정 문항의 사진은 새 번호로 옮기고 나머지 사진은 정리
