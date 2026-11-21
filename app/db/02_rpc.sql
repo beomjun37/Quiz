@@ -253,6 +253,7 @@ begin
       -- 정답 공개 취소: 점수·연속 기록을 공개 직전으로 되돌리고 다시 '문제 푸는 중'으로
       update hq_players set score = prev_score, streak = prev_streak, max_streak = prev_max_streak,
         active = prev_active, last_gain = 0, last_bonus = '{}' where true;
+      update hq_questions set answer = null where idx = s.qi and type in ('survey', 'minority');
       update hq_state set phase = 'q', updated_at = now() where id = 1;
     elsif s.phase = 'bet' then
       update hq_state set phase = case when s.qi < 0 then 'lobby' else 'answer' end, updated_at = now() where id = 1;
@@ -327,7 +328,8 @@ begin
       is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int, topic text) on commit drop;
     -- 카테고리를 순서대로 하나씩 뽑는다. 같은 주제(topic)는 세트 전체에서 한 문제만(앞 카테고리에서 나온 주제는 제외).
     for c_cat, c_round in select * from (values ('추억', '추억 소환'), ('가요', '90년대 가요'), ('요즘 말', '요즘 말 테스트'),
-                                                ('예능', '예능 소환'), ('회사', '회사 생활'), ('상식', '상식 퀴즈')) v(cat, r) loop
+                                                ('예능', '예능 소환'), ('회사', '회사 생활'), ('상식', '상식 퀴즈'),
+                                                ('다수결', '100명에게 물었습니다'), ('소수결', '소수가 이긴다')) v(cat, r) loop
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic)
       select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, 15, '', false, u.id, nullif(u.topic, '')
       from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
@@ -403,6 +405,13 @@ begin
   update hq_players p set prev_score = p.score, prev_rank = r.rk, last_bonus = '{}',
     prev_streak = p.streak, prev_max_streak = p.max_streak, prev_active = p.active
   from (select id, rank() over (order by score desc)::int rk from hq_players) r where r.id = p.id;
+
+  -- 다수결: 가장 많이 고른 보기가 정답 / 소수결: (한 명 이상 고른 보기 중) 가장 적게 고른 보기가 정답
+  if q.type in ('survey', 'minority') then
+    select choice into q.answer from hq_answers where qi = s.qi group by choice
+    order by case when q.type = 'survey' then -count(*) else count(*) end, random() limit 1;
+    update hq_questions set answer = q.answer where idx = s.qi;
+  end if;
 
   if q.type = 'poll' then
     update hq_players p set active = true from hq_answers a where a.player_id = p.id and a.qi = s.qi;

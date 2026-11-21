@@ -83,7 +83,7 @@ alter table hq_players add column if not exists max_streak int not null default 
 alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
 alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 2차에서 만나요';
 
--- 사진 연출: '' | zoom(크게 확대→점점 축소) | blur(흐림→점점 선명)
+-- 사진 연출: '' | zoom(확대→축소) | blur(흐림→선명) | pixel(모자이크→선명) | silhouette(그림자→원본)
 alter table hq_questions add column if not exists reveal text not null default '';
 
 -- 문항 고정: 랜덤 세트를 다시 만들어도 남는 문제(부장님·사진·투표 등 직접 만든 것)
@@ -102,6 +102,10 @@ create table if not exists hq_bank (
 );
 alter table hq_bank enable row level security;
 alter table hq_bank add column if not exists topic text not null default '';  -- 같은 주제는 한 세트에 하나만
+-- 다수결(survey)·소수결(minority): 정답이 참가자 응답으로 정해져서 은행에는 정답이 없다
+alter table hq_bank alter column answer drop not null;
+alter table hq_bank drop constraint if exists hq_bank_type_check;
+alter table hq_bank add constraint hq_bank_type_check check (type in ('ox','mc','survey','minority'));
 
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
@@ -115,7 +119,7 @@ alter table hq_reactions enable row level security;
 -- 투표형(정답 없음) 문항 허용
 alter table hq_questions alter column answer drop not null;
 alter table hq_questions drop constraint if exists hq_questions_type_check;
-alter table hq_questions add constraint hq_questions_type_check check (type in ('ox','mc','poll'));
+alter table hq_questions add constraint hq_questions_type_check check (type in ('ox','mc','poll','survey','minority'));
 
 -- 문항 이미지(어린 시절 사진 등). 폰에서 줄인 JPEG data URL. 현재 문제일 때만 RPC 로 꺼낼 수 있다.
 create table if not exists hq_images (idx int primary key, data text not null);

@@ -126,6 +126,8 @@ svg { flex-shrink: 0; }
 .qhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .sub-live { display: inline-flex; align-items: center; gap: 6px; color: var(--mute); font-size: 15px; font-weight: 600; }
 .qimg { border-radius: 16px; overflow: hidden; background: var(--ink-2); min-height: 120px; display: grid; place-items: center; }
+.qimg canvas { display: block; width: 100%; max-height: 32dvh; object-fit: contain; }
+.rule-hint { margin: -6px 0 0; display: flex; gap: 6px; align-items: center; color: var(--soju); font-weight: 700; font-size: 15px; }
 .qimg img { display: block; width: 100%; max-height: 32dvh; object-fit: contain; transition: transform 0.25s linear, filter 0.25s linear; }
 .badge-on { display: inline-flex; align-self: flex-start; gap: 6px; align-items: center; background: rgb(255 181 71 / 0.15); color: var(--beer); font-weight: 800; padding: 8px 12px; border-radius: 10px; font-size: 16px; }
 .cards { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

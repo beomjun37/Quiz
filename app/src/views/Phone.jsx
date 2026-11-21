@@ -140,21 +140,44 @@ function Lobby({ view, me, act, busy, leave }) {
   </>
 }
 
-// 사진 연출: zoom 은 4배 확대에서 시작해 제한 시간 동안 원래 크기로, blur 는 흐림에서 점점 선명하게.
-// 정답 공개 화면에서는 원본 그대로 보여 준다.
+// 사진 연출(제한 시간 동안 점점 쉬워진다). 정답 공개 화면에서는 원본 그대로.
+//   zoom 4배 확대 → 원래 크기 / blur 흐림 → 선명 / pixel 모자이크 → 선명 / silhouette 그림자 → 원본
 function QImage({ q, left }) {
   const [src, setSrc] = useState(null)
+  const canvas = useRef(null)
   useEffect(() => {
     let dead = false
     setSrc(null)
     if (q.has_image) rpc('hq_image', { p_idx: q.idx }).then((d) => { if (!dead) setSrc(d) }).catch(() => {})
     return () => { dead = true }
   }, [q.idx, q.has_image])
-  if (!q.has_image) return null
   const t = left == null ? 0 : Math.max(0, Math.min(1, left / q.limit_sec))  // 1 → 0
+  const pixel = q.reveal === 'pixel' && t > 0
+  // 모자이크: 작은 캔버스에 그린 뒤 부드럽게 하지 않고 키운다. 칸 크기 48px → 1px
+  useEffect(() => {
+    if (!pixel || !src || !canvas.current) return
+    const img = new Image()
+    img.onload = () => {
+      const c = canvas.current; if (!c) return
+      const w = img.width, h = img.height, block = Math.max(1, Math.round(72 * t * t))
+      c.width = w; c.height = h
+      const sw = Math.max(1, Math.round(w / block)), sh = Math.max(1, Math.round(h / block))
+      const tmp = document.createElement('canvas'); tmp.width = sw; tmp.height = sh
+      tmp.getContext('2d').drawImage(img, 0, 0, sw, sh)
+      const ctx = c.getContext('2d'); ctx.imageSmoothingEnabled = false
+      ctx.drawImage(tmp, 0, 0, sw, sh, 0, 0, w, h)
+    }
+    img.src = src
+  }, [pixel, src, Math.round(t * 40)]) // eslint-disable-line
+  if (!q.has_image) return null
+  if (!src) return <div className="qimg"><span className="lead">사진 불러오는 중…</span></div>
+  if (pixel) return <div className="qimg"><canvas ref={canvas} aria-label="모자이크 문제 사진" /></div>
   const style = q.reveal === 'zoom' ? { transform: `scale(${1 + 3 * t})` }
-    : q.reveal === 'blur' ? { filter: `blur(${Math.round(24 * t)}px)` } : undefined
-  return <div className="qimg">{src ? <img src={src} alt="문제 사진" style={style} /> : <span className="lead">사진 불러오는 중…</span>}</div>
+    : q.reveal === 'blur' ? { filter: `blur(${Math.round(24 * t)}px)` }
+    // 그림자: 흑백 고대비로 윤곽만 보이다가(처음 60%), 남은 시간 동안 원래 색으로 돌아온다
+    : q.reveal === 'silhouette' && t > 0 ? (() => { const k = t > 0.4 ? 1 : t / 0.4
+        return { filter: `grayscale(${k}) contrast(${1 + 11 * k}) brightness(${1 - 0.35 * k})` } })() : undefined
+  return <div className="qimg"><img src={src} alt="문제 사진" style={style} /></div>
 }
 
 function Question({ view, me, act, busy }) {
@@ -184,6 +207,8 @@ function Question({ view, me, act, busy }) {
     </div>
     <h1 className="title">{q.q}</h1>
     {poll && <p className="lead" style={{ marginTop: -8 }}>정답 없는 투표예요. 점수엔 영향 없어요.</p>}
+    {q.type === 'survey' && <p className="rule-hint"><Vote size={16} />다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
+    {q.type === 'minority' && <p className="rule-hint"><Vote size={16} />소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
     <QImage q={q} left={left} />
     {me.double_now && <div className="badge-on"><Zap size={18} />2배 카드 사용 중</div>}
     {canCard && <div className="cards">

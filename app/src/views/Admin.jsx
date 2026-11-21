@@ -151,7 +151,7 @@ function HostCard({ view, admin }) {
   const [cur, setCur] = useState(null)
   useEffect(() => { admin('current').then(setCur).catch(() => {}) }, [view.phase, view.qi]) // eslint-disable-line
   const q = view.question
-  const label = (qq, a) => (a == null ? '정답 없음 (투표)' : options(qq)[a]?.[0])
+  const label = (qq, a) => (a != null ? options(qq)[a]?.[0] : qq.type === 'survey' ? '공개할 때 결정 (가장 많이 고른 답)' : qq.type === 'minority' ? '공개할 때 결정 (가장 적게 고른 답)' : '정답 없음 (투표)')
   const top = view.ranking
   const nx = cur?.next
   const correct = q && view.dist && q.answer != null ? view.dist[q.answer] : null
@@ -262,10 +262,10 @@ function PinChange({ admin, busy, onChanged }) {
 }
 
 // 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(부장님·사진·투표 등)는 그대로 두고 나머지만 새로 뽑는다.
-const CATS = ['추억', '가요', '요즘 말', '예능', '회사', '상식']
+const CATS = ['추억', '가요', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
 function BankPanel({ admin, phase, setMsg, onDone }) {
   const [stats, setStats] = useState(null)
-  const [counts, setCounts] = useState({ 추억: 2, 가요: 2, '요즘 말': 2, 예능: 2, 회사: 1, 상식: 1 })
+  const [counts, setCounts] = useState({ 추억: 2, 가요: 1, '요즘 말': 1, 예능: 1, 회사: 1, 상식: 1, 다수결: 1, 소수결: 1 })
   const [minDiff, setMinDiff] = useState(2)
   const [bet, setBet] = useState(true)
   useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
@@ -304,7 +304,7 @@ function QuestionCheck({ admin, images }) {
     list.forEach((q, i) => {
       if (q.reveal && !images.includes(i)) out.push(['err', `${n(i)} 사진 문제인데 사진이 없어요`])
       if ((q.opts ?? []).some((o) => /^\(이름 \d\)$/.test(String(o).trim()))) out.push(['err', `${n(i)} 보기가 '(이름 1)' 같은 자리 표시예요`])
-      if (q.type !== 'poll' && q.answer == null) out.push(['err', `${n(i)} 정답이 없어요`])
+      if (!['poll', 'survey', 'minority'].includes(q.type) && q.answer == null) out.push(['err', `${n(i)} 정답이 없어요`])
       if (q.type === 'mc' && new Set(q.opts).size !== q.opts.length) out.push(['err', `${n(i)} 보기가 겹쳐요`])
       if (q.round.includes('부장님') && !q.host) out.push(['warn', `${n(i)} 부장님 문제: 부장님께 정답 확인하셨나요?`])
       if (q.q.length > 60) out.push(['warn', `${n(i)} 문제가 길어서 폰에서 3줄 이상이에요`])
