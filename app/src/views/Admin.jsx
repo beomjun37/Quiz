@@ -1,25 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
-import { QImage } from './Phone'
+import { QImage, useWakeLock } from './Phone'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
 import { errText, fmt, options, trap, REACT_EMOJI } from '../lib/ui'
 
+const savePin = (p) => { try { localStorage.setItem('hq-pin', p) } catch { /* noop */ } }
+
 // 진행자 노트북용. 권한은 서버(hq_admin)가 PIN으로 매번 검증한다. URL이 새도 조작 불가.
 export default function Admin() {
-  const [pin, setPin] = useState(() => sessionStorage.getItem('hq-pin') ?? '')
+  const [pin, setPin] = useState(() => { try { return localStorage.getItem('hq-pin') ?? sessionStorage.getItem('hq-pin') ?? '' } catch { return '' } })
   const [ok, setOk] = useState(false)
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
   const { view, refetch } = useView(null, 2000)
+  useWakeLock()
   const [qr, setQr] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [preview, setPreview] = useState(null)
+  const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem('hq-tab') ?? 'live' } catch { return 'live' } })
+  const setTab = (t) => { setTabState(t); try { sessionStorage.setItem('hq-tab', t) } catch { /* noop */ } window.scrollTo(0, 0) }
+  const [questions, setQuestions] = useState([])
+  const refreshQuestions = () => admin('questions_get').then((r) => setQuestions(r)).catch(() => {})
   const [images, setImages] = useState([])
   const refreshImages = () => admin('images_list').then(setImages).catch(() => {})
-  useEffect(() => { if (ok) refreshImages() }, [ok]) // eslint-disable-line
+  useEffect(() => { if (ok) { refreshImages(); refreshQuestions() } }, [ok]) // eslint-disable-line
 
   // 문제 사진: 고른 사진을 긴 변 900px JPEG 로 줄여 DB 에 넣는다(별도 저장소 설정 불필요). file 이 없으면 삭제.
   async function onImage(idx, file) {
@@ -46,7 +53,7 @@ export default function Admin() {
   const run = (action, arg) => admin(action, arg).catch(() => {})
 
   if (!ok) return <div className="admin" style={{ gridTemplateColumns: '1fr', maxWidth: 440 }}>
-    <form className="panel" onSubmit={(e) => { e.preventDefault(); admin('check').then(() => { sessionStorage.setItem('hq-pin', pin); setOk(true) }).catch(() => {}) }}>
+    <form className="panel" onSubmit={(e) => { e.preventDefault(); admin('check').then(() => { savePin(pin); setOk(true) }).catch(() => {}) }}>
       <h2><Lock size={20} />진행자 로그인</h2>
       <input type="password" inputMode="numeric" autoFocus placeholder="PIN" value={pin} onChange={(e) => setPin(e.target.value)} />
       <button className="go" disabled={busy}>들어가기<ChevronRight size={20} /></button>
@@ -64,92 +71,112 @@ export default function Admin() {
   const phaseKo = { lobby: '입장 대기', bet: '베팅 중', q: '문제 푸는 중', answer: '정답 공개됨', final: '최종 순위', draw: '행운상 추첨', end: '마무리' }[view.phase]
   const base = location.href.split('#')[0]
 
-  return <div className="admin">
-    <StickyBar view={view} next={next} phaseKo={phaseKo} busy={busy} run={run} />
-    <section className="panel">
-      <h2><SlidersHorizontal size={20} />진행</h2>
-      <div className="kv">
-        <span>단계<b>{phaseKo}</b></span>
-        <span>문제<b className="num">{Math.max(view.qi + 1, 0)} / {view.total_q}</b></span>
-        <span>참가<b className="num">{view.players}명</b></span>
-        {view.phase === 'q' && <span>제출<b className="num">{view.submitted} / {view.players}명</b></span>}
-      </div>
-      <HostCard view={view} admin={admin} onPreview={(q, idx) => setPreview({ q, idx })} />
-      <div style={{ marginTop: 16 }}>
-        {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
+  const undo = () => {
+    const what = { q: '문제 열기를 취소할까요? 이 문제에 낸 답은 지워져요.', answer: '정답 공개를 취소할까요? 점수가 공개 전으로 돌아가요.', bet: '베팅 단계를 취소할까요?', final: '최종 순위를 닫고 정답 공개 화면으로 돌아갈까요?', draw: '추첨 화면을 닫을까요? (이미 뽑힌 사람은 그대로예요)', end: '마무리 화면을 닫고 추첨으로 돌아갈까요?' }[view.phase]
+    if (confirm(what)) run('back', { from_phase: view.phase, from_qi: view.qi })
+  }
+  const openPreview = (list, idx) => setPreview({ list, idx })
+
+  // iOS 앱처럼 하단 탭 3개: 진행(지금 할 일만) / 문제 / 설정
+  return <div className="host-app">
+    {tab !== 'live' && view.phase !== 'lobby' && <MiniBar view={view} next={next} phaseKo={phaseKo} busy={busy} run={run} onOpen={() => setTab('live')} />}
+
+    {tab === 'live' && <main className="tab-page">
+      <header className="large-title"><small className="num">{view.phase === 'lobby' ? `참가 ${view.players}명` : `${Math.max(view.qi + 1, 0)} / ${view.total_q}번 · 참가 ${view.players}명`}</small><h1>{phaseKo}</h1></header>
+      {['q', 'answer'].includes(view.phase) && view.question && <p className="live-q">{view.question.q}</p>}
+      {view.phase === 'q' && view.question && <LiveTimer view={view} />}
+      <HostCard view={view} admin={admin} onPreview={(q, idx) => openPreview(questions, idx)} />
+      {msg && <div className="err">{msg}</div>}
+      <div className="live-actions">
+        {next && view.phase !== 'draw' && <button className="go big" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
         {view.phase === 'draw' && <DrawControl view={view} run={run} busy={busy} />}
         {view.phase === 'end' && <EndControl view={view} run={run} busy={busy} />}
       </div>
-      {view.phase !== 'lobby' && <button className="undo" disabled={busy} onClick={() => {
-        const what = { q: '문제 열기를 취소할까요? 이 문제에 낸 답은 지워져요.', answer: '정답 공개를 취소할까요? 점수가 공개 전으로 돌아가요.', bet: '베팅 단계를 취소할까요?', final: '최종 순위를 닫고 정답 공개 화면으로 돌아갈까요?', draw: '추첨 화면을 닫을까요? (이미 뽑힌 사람은 그대로예요)', end: '마무리 화면을 닫고 추첨으로 돌아갈까요?' }[view.phase]
-        if (confirm(what)) run('back', { from_phase: view.phase, from_qi: view.qi })
-      }}><Undo2 size={15} />잘못 눌렀어요, 한 단계 되돌리기</button>}
-      {msg && <div className="err" style={{ marginTop: 12 }}>{msg}</div>}
+      {view.phase === 'lobby' && <div className="group">
+        <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
+        <button className="row-btn" onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={20} /><span>참가 링크 복사 (단톡방용)</span><ChevronRight size={18} /></button>
+      </div>}
+      {view.phase !== 'lobby' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
+      {view.ranking.length > 0 && <details className="group rank-fold"><summary>지금 순위 TOP 10</summary>
+        {view.ranking.map((p) => <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>)}
+      </details>}
+    </main>}
 
-      <h3>리허설 (가상 참가자)</h3>
-      {[20, 50, 100].map((n) => <button key={n} className="ghost" onClick={() => run('bots', { n })}><Users size={15} style={{ verticalAlign: -2 }} /> {n}명 채우기</button>)}
-      <AutoRehearsal admin={admin} view={view} setMsg={setMsg} />
-      <a className="ghost sim-link" href={`${base}#/sim`} target="_blank" rel="noreferrer"
-        onClick={() => { try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } }}>
-        <Smartphone size={15} style={{ verticalAlign: -2 }} /> 혼자 끝까지 풀어 보기 (참가자로 연습)</a>
-
-      <h3>참가자 접속 (단톡방 링크 또는 QR)</h3>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15, wordBreak: 'break-all', flexWrap: 'wrap' }}>
-        <a href={base} target="_blank" rel="noreferrer">{base}</a>
-        <button className="ghost" style={{ margin: 0 }} onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={15} style={{ verticalAlign: -2 }} /> 복사</button>
-        <button className="ghost" style={{ margin: 0 }} onClick={() => setQr(true)}><QrCode size={15} style={{ verticalAlign: -2 }} /> QR 크게 보기</button>
+    {tab === 'questions' && <main className="tab-page">
+      <header className="large-title"><small className="num">{view.total_q}문제</small><h1>문제</h1></header>
+      <div className="group">
+        <button className="row-btn" disabled={!questions.length} onClick={() => openPreview(questions, 0)}><Smartphone size={20} /><span>참가자 화면으로 처음부터 넘겨 보기</span><ChevronRight size={18} /></button>
+        <a className="row-btn" href={`${base}#/sim`} target="_blank" rel="noreferrer" onClick={() => { try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } }}>
+          <PlayCircle size={20} /><span>실전처럼 혼자 풀어 보기 (경품까지)</span><ChevronRight size={18} /></a>
       </div>
-
-      <h3>다시 하기</h3>
-      <div style={{ display: 'grid', gap: 10 }}>
-        <div>
-          <button className="ghost" disabled={busy} onClick={() => confirm('새 게임을 시작할까요?\n모든 참가자가 입장 화면으로 돌아가 닉네임부터 다시 입력해요.') && run('reset')}>
-            <RotateCcw size={15} style={{ verticalAlign: -2 }} /> 새 게임 (닉네임부터 다시)</button>
-          <p className="lead" style={{ fontSize: 13, margin: '2px 0 0' }}>리허설 끝나고 실전 시작할 때. 행사가 끝난 뒤 누르면 참가자 기록도 지워져요.</p>
-        </div>
-        <div>
-          <button className="ghost" disabled={busy} onClick={() => confirm('한 판 더 할까요?\n닉네임은 그대로, 점수만 0점이 돼요. (가상 참가자는 빠져요)') && run('restart')}>
-            <RotateCcw size={15} style={{ verticalAlign: -2 }} /> 한 판 더 (닉네임 유지)</button>
-          <p className="lead" style={{ fontSize: 13, margin: '2px 0 0' }}>같은 사람들끼리 바로 한 번 더 할 때.</p>
-        </div>
-      </div>
-
-      <PinChange admin={admin} busy={busy} onChanged={(p) => { setPin(p); sessionStorage.setItem('hq-pin', p) }} />
-    </section>
-
-    <section className="panel">
-      <h2><ListOrdered size={20} />개인 순위 TOP 10</h2>
-      {view.ranking.length ? view.ranking.map((p) => (
-        <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>
-      )) : <p className="lead">아직 점수가 없어요</p>}
-
-      <h2 style={{ marginTop: 28 }}><PencilLine size={20} />문항 편집</h2>
+      {msg && <div className="err">{msg}</div>}
       <QuestionCheck admin={admin} images={images} />
-      <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages() }} />
+      <details className="group fold"><summary><Shuffle size={18} />문제 은행에서 랜덤으로 다시 뽑기</summary>
+        <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages(); refreshQuestions() }} />
+      </details>
       <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage}
-        onPreview={(q, idx) => setPreview({ q, idx })} />
-    </section>
+        onPreview={openPreview} onSaved={refreshQuestions} />
+    </main>}
+
+    {tab === 'settings' && <main className="tab-page">
+      <header className="large-title"><h1>설정</h1></header>
+      {msg && <div className="err">{msg}</div>}
+      <p className="group-label">참가자 접속</p>
+      <div className="group">
+        <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
+        <button className="row-btn" onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={20} /><span>참가 링크 복사</span><ChevronRight size={18} /></button>
+      </div>
+      <p className="group-label">리허설</p>
+      <div className="group pad">
+        <div className="chips-row">{[20, 50, 100].map((n) => <button key={n} className="ghost" onClick={() => run('bots', { n })}><Users size={15} style={{ verticalAlign: -2 }} /> 가상 {n}명</button>)}</div>
+        <AutoRehearsal admin={admin} view={view} setMsg={setMsg} />
+      </div>
+      <p className="group-label">다시 하기</p>
+      <div className="group">
+        <button className="row-btn" disabled={busy} onClick={() => confirm('한 판 더 할까요?\n닉네임은 그대로, 점수만 0점이 돼요. (가상 참가자는 빠져요)') && run('restart')}>
+          <RotateCcw size={20} /><span>한 판 더<small>닉네임 유지 · 점수만 0점</small></span><ChevronRight size={18} /></button>
+      </div>
+      <p className="group-label">보안</p>
+      <div className="group pad"><PinChange admin={admin} busy={busy} onChanged={(p) => { setPin(p); savePin(p) }} /></div>
+      <div className="group">
+        <button className="row-btn danger-row" disabled={busy} onClick={() => {
+          if (!confirm('새 게임을 시작할까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.')) return
+          if (view.phase !== 'lobby' && !confirm('지금 게임이 진행 중이에요. 정말 모두 지울까요?')) return
+          run('reset')
+        }}><RotateCcw size={20} /><span>새 게임 (모든 기록 지우기)<small>리허설 후 · 행사가 끝난 뒤</small></span></button>
+      </div>
+    </main>}
+
+    <nav className="tabbar" aria-label="진행자 메뉴">
+      {[['live', '진행', Radio], ['questions', '문제', ListChecks], ['settings', '설정', Settings]].map(([k, l, Icon]) => (
+        <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)} aria-current={tab === k ? 'page' : undefined}><Icon size={24} /><span>{l}</span></button>))}
+    </nav>
     {qr && <QrOverlay url={base} onClose={() => setQr(false)} />}
-    {preview && <PreviewModal {...preview} admin={admin} hasImage={images.includes(preview.idx)} onClose={() => setPreview(null)} />}
+    {preview && <PreviewModal list={preview.list} start={preview.idx} admin={admin} images={images} onClose={() => setPreview(null)} />}
   </div>
 }
 
-// 화면 위에 늘 붙어 있는 진행 막대: 단계, 남은 시간, 제출 현황, 다음 버튼. 스크롤을 내려도 보인다.
-function StickyBar({ view, next, phaseKo, busy, run }) {
+// 진행 탭이 아닐 때 위에 붙는 작은 막대: 남은 시간과 다음 버튼만
+function MiniBar({ view, next, phaseKo, busy, run, onOpen }) {
   const q = view.question
   const left = useCountdown(view.phase === 'q' ? view.q_started_at : null, q?.limit_sec ?? 15)
-  const isQ = view.phase === 'q' && q
+  return <div className="minibar">
+    <button className="mb-info" onClick={onOpen}><b>{phaseKo}</b>{view.phase === 'q' && <span className={`num ${left <= 5 ? 'hurry' : ''}`}>{Math.ceil(left)}초 · {view.submitted}/{view.players}</span>}</button>
+    <button className="mb-go" onClick={onOpen}>진행 탭으로<ChevronRight size={16} /></button>
+  </div>
+}
+
+// 진행 탭의 큰 타이머
+function LiveTimer({ view }) {
+  const q = view.question
+  const left = useCountdown(view.q_started_at, q.limit_sec)
   const all = view.players > 0 && view.submitted >= view.players
-  return <div className="admin-sticky">
-    <div className="ph">{phaseKo}<small className="num">{Math.max(view.qi + 1, 0)} / {view.total_q} · {view.players}명</small></div>
-    {isQ && <>
-      <b className={`sec num ${left <= 5 ? 'hurry' : ''}`}>{Math.ceil(left)}<small style={{ fontSize: 14 }}>초</small></b>
-      <div className="sbar">
-        <div className="track"><i style={{ width: `${(left / q.limit_sec) * 100}%`, background: left <= 5 ? 'var(--x)' : undefined }} /></div>
-        <span className="num">{left <= 0 ? '시간 끝! 정답 공개를 눌러 주세요' : all ? `전원 제출 (${view.submitted}명) · 바로 공개해도 돼요` : `제출 ${view.submitted} / ${view.players}명`}</span>
-      </div>
-    </>}
-    {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={20} /></button>}
+  return <div className={`live-timer ${left <= 5 ? 'hurry' : ''} ${left <= 0 ? 'over' : ''}`}>
+    <b className="num">{left > 0 ? Math.ceil(left) : 0}</b>
+    <div className="lt-side">
+      <div className="track"><i style={{ width: `${(left / q.limit_sec) * 100}%` }} /></div>
+      <span className="num">{left <= 0 ? '시간 끝! 정답 공개를 눌러 주세요' : all ? `전원 제출 · 바로 공개해도 돼요` : `제출 ${view.submitted} / ${view.players}명`}</span>
+    </div>
   </div>
 }
 
@@ -166,7 +193,7 @@ function HostCard({ view, admin, onPreview }) {
   let say
   switch (view.phase) {
     case 'lobby':
-      say = `단톡방 링크로 들어와서 닉네임만 쓰면 입장입니다! 지금 ${view.players}명 들어왔어요. 빨리 맞힐수록 점수가 높고, 3연속 맞히면 보너스, 찬스 카드는 한 게임에 딱 한 장입니다. 그럼 시작합니다!`
+      say = `지금 ${view.players}명 들어왔어요! 링크 열고 닉네임만 쓰면 입장. 빨리 맞힐수록 고득점, 3연속이면 보너스! 시작합니다!`
       break
     case 'q':
       say = cur?.now?.host || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
@@ -243,6 +270,7 @@ function QrOverlay({ url, onClose }) {
     <div className="qr-box" onClick={(e) => e.stopPropagation()}>
       <button className="qr-close" onClick={onClose} aria-label="닫기"><Close size={22} /></button>
       <h2>폰 카메라로 찍고 입장!</h2>
+      <p style={{ margin: '0 0 10px', color: '#555', fontSize: 14 }}>잘 안 찍히면 이 폰의 화면 밝기를 올려 주세요</p>
       {src && <img src={src} alt="입장 QR 코드" />}
       <p>{url}</p>
     </div>
@@ -253,7 +281,7 @@ function PinChange({ admin, busy, onChanged }) {
   const [open, setOpen] = useState(false)
   const [a, setA] = useState(''), [b, setB] = useState('')
   const [err, setErr] = useState(null)
-  if (!open) return <><h3>보안</h3><button className="ghost" onClick={() => setOpen(true)}><KeyRound size={15} style={{ verticalAlign: -2 }} /> 진행자 PIN 바꾸기</button></>
+  if (!open) return <><button className="ghost" onClick={() => setOpen(true)}><KeyRound size={15} style={{ verticalAlign: -2 }} /> 진행자 PIN 바꾸기</button></>
   return <>
     <h3>진행자 PIN 바꾸기</h3>
     <input type="password" inputMode="numeric" placeholder="새 PIN (4~12자리)" value={a} onChange={(e) => setA(e.target.value)} />
@@ -345,6 +373,7 @@ function AutoRehearsal({ admin, view, setMsg }) {
   const live = useRef(view); live.current = view
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
   async function go() {
+    if ((view.humans ?? 0) > 0) { setMsg(`실제 참가자 ${view.humans}명이 들어와 있어서 자동 리허설을 할 수 없어요 (끝나면 기록이 지워져요)`); return }
     if (!confirm('자동 리허설을 시작할까요?\n가상 참가자 30명으로 끝까지 빠르게 진행한 뒤, 새 게임으로 정리해요.\n(실제 참가자가 있으면 그분들도 같이 진행돼요)')) return
     stop.current = false; setRunning(true)
     try {
@@ -366,26 +395,31 @@ function AutoRehearsal({ admin, view, setMsg }) {
 }
 
 // 참가자 화면 미리보기: 실제 폰 화면과 같은 모양으로 문제·타이머·사진 연출을 재생한다. 점수나 서버 상태는 건드리지 않는다.
-function PreviewModal({ q, idx, admin, hasImage, onClose }) {
+function PreviewModal({ list, start, admin, images, onClose }) {
+  const [idx, setIdx] = useState(start)
+  const q = list[idx] ?? {}
+  const hasImage = images.includes(idx)
   const limit = q.limit_sec ?? 15
   const [img, setImg] = useState(undefined)
-  const [start, setStart] = useState(() => Date.now())
+  const [t0, setT0] = useState(() => Date.now())
   const [now, setNow] = useState(Date.now())
   const [reveal, setReveal] = useState(false)
-  useEffect(() => { if (hasImage) admin('image_get', { idx }).then((d) => setImg(d ?? null)).catch(() => setImg(null)) }, [idx, hasImage]) // eslint-disable-line
+  useEffect(() => {
+    setImg(undefined); setReveal(false); setT0(Date.now())
+    if (hasImage) admin('image_get', { idx }).then((d) => setImg(d ?? null)).catch(() => setImg(null))
+  }, [idx]) // eslint-disable-line
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 200); return () => clearInterval(t) }, [])
-  const left = reveal ? 0 : Math.max(0, limit - (now - start) / 1000)
+  const left = reveal ? 0 : Math.max(0, limit - (now - t0) / 1000)
   const pq = { ...q, idx, has_image: hasImage, limit_sec: limit }
-  const opts = options(pq)
+  const opts = q.type ? options(pq) : []
   const ox = q.type === 'ox'
   return <div className="qr-overlay" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
     <div className="preview" onClick={(e) => e.stopPropagation()}>
       <div className="preview-bar">
-        <b>참가자 화면 미리보기 · {idx + 1}번</b>
+        <b className="num">참가자 화면 · {idx + 1} / {list.length}</b>
         <button aria-label="닫기" onClick={onClose}><Close size={20} /></button>
       </div>
       <div className="phone preview-phone">
-        <div className="statusbar"><div className="me-chip"><span>미리보기</span></div><div className="score-chip num">0<small>점 · 1위</small></div></div>
         <div className="round">{q.round} · {idx + 1}번</div>
         {!reveal && <div className={`timer ${left <= 5 ? 'hurry' : ''}`}>
           <div className="bar"><i style={{ width: `${(left / limit) * 100}%` }} /></div><b className="num">{Math.ceil(left)}</b></div>}
@@ -393,6 +427,7 @@ function PreviewModal({ q, idx, admin, hasImage, onClose }) {
         {q.type === 'survey' && <p className="rule-hint">다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'minority' && <p className="rule-hint">소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'poll' && <p className="lead">정답 없는 투표예요. 점수엔 영향 없어요.</p>}
+        {q.is_bet && <p className="rule-hint">마지막 올인 베팅 문제예요 (실전에선 이 앞에 베팅 화면)</p>}
         {hasImage && (img === undefined ? <div className="qimg"><span className="lead">사진 불러오는 중…</span></div>
           : img ? <QImage q={pq} left={reveal ? null : left} src={img} /> : null)}
         <div className={`choices ${ox ? 'ox' : ''}`}>
@@ -405,8 +440,10 @@ function PreviewModal({ q, idx, admin, hasImage, onClose }) {
         {reveal && q.note && <div className="panel note"><span>{q.note}</span></div>}
       </div>
       <div className="preview-actions">
-        <button className="ghost" onClick={() => { setReveal(false); setStart(Date.now()) }}><RotateCw size={15} style={{ verticalAlign: -2 }} /> 처음부터 재생</button>
-        <button className="ghost" onClick={() => setReveal((r) => !r)}><Eye size={15} style={{ verticalAlign: -2 }} /> {reveal ? '문제 화면' : '정답 화면'}</button>
+        <button className="ghost" disabled={idx === 0} onClick={() => setIdx((v) => v - 1)} aria-label="이전 문제"><ChevronLeft size={18} style={{ verticalAlign: -3 }} /> 이전</button>
+        <button className="ghost" onClick={() => setReveal((r) => !r)}>{reveal ? '문제 보기' : '정답 보기'}</button>
+        <button className="ghost" onClick={() => { setReveal(false); setT0(Date.now()) }} aria-label="다시 재생"><RotateCw size={16} style={{ verticalAlign: -3 }} /></button>
+        <button className="go" disabled={idx >= list.length - 1} onClick={() => setIdx((v) => v + 1)} aria-label="다음 문제">다음 <ChevronRight size={18} style={{ verticalAlign: -3 }} /></button>
       </div>
     </div>
   </div>
