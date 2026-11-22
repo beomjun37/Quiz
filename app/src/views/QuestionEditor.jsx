@@ -4,17 +4,7 @@ import { ArrowDown, ArrowUp, Braces, ImagePlus, Plus, Save, Smartphone, Trash2 }
 const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
 const NO_ANSWER = ['poll', 'survey', 'minority']
 const LIMITS = [10, 15, 20, 30]
-// 부장님 마음 맞히기 템플릿: 넣은 뒤 부장님께 받은 답으로 정답만 찍으면 된다.
-const BOSS = [
-  ['부장님 최애 회식 안주는?', ['삼겹살', '회', '치킨', '골뱅이']],
-  ['부장님 노래방 18번은 몇 년대 노래?', ['80년대', '90년대', '2000년대', '최신곡']],
-  ['부장님 주말에 가장 많이 하는 것은?', ['골프', '등산', '낚시', '집에서 휴식']],
-  ['부장님의 첫 휴대폰 브랜드는?', ['애니콜', '싸이언', '스카이', '모토로라']],
-  ['부장님 주량은?', ['소주 1병 미만', '소주 1~2병', '소주 2~3병', '측정 불가']],
-  ['부장님이 신입 때 가장 많이 들은 말은?', ['다시 해 와', '수고했어', '내일 얘기하자', '밥은 먹었어?']],
-  ['부장님의 학창 시절 별명 스타일은?', ['외모 관련', '이름 관련', '성격 관련', '별명 없음']],
-]
-const bossQ = ([q, opts]) => ({ ...blank(), round: '부장님 마음 맞히기', q, opts, note: '부장님 한 말씀 부탁드립니다!', host: '부장님은 표정 관리 부탁드려요! 정답은 부장님이 직접 공개합니다.', pinned: true })
+
 const blank = () => ({ round: '', type: 'mc', q: '', opts: ['', '', '', ''], answer: 0, note: '', host: '', is_bet: false, limit_sec: 15, reveal: '', pinned: true })
 
 // 서버 형식 ↔ 편집 형식
@@ -125,12 +115,6 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
     ))}
     <div className="qe-bar">
       <button className="ghost" disabled={locked} onClick={() => { setList((l) => [...l, blank()]); setDirty(true) }}><Plus size={15} style={{ verticalAlign: -2 }} /> 문제 추가</button>
-      <select className="ghost" disabled={locked} value="" style={{ color: 'var(--fg)', border: 0, font: 'inherit' }}
-        onChange={(ev) => { const t = BOSS[+ev.target.value]; if (!t) return
-          setList((l) => { const k = l.findIndex((x) => x.is_bet); const c = [...l]; c.splice(k < 0 ? c.length : k, 0, bossQ(t)); return c }); setDirty(true) }}>
-        <option value="">+ 부장님 문제 템플릿</option>
-        {BOSS.map(([q], i) => <option key={i} value={i}>{q}</option>)}
-      </select>
       <button className="go" disabled={locked || busy || !dirty} onClick={save}><Save size={18} />{busy ? '저장 중…' : dirty ? '저장하기' : '저장됨'}</button>
       <button className="ghost" onClick={() => setJson(JSON.stringify(list.map(toServer), null, 1))}><Braces size={15} style={{ verticalAlign: -2 }} /> JSON</button>
     </div>

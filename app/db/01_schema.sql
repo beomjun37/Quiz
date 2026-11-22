@@ -81,12 +81,12 @@ alter table hq_questions add column if not exists host text not null default '';
 
 alter table hq_players add column if not exists max_streak int not null default 0;   -- 최고 연속 정답
 alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
-alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 2차에서 만나요';
+alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 즐거운 저녁 되세요';
 
 -- 사진 연출: '' | zoom(확대→축소) | blur(흐림→선명) | pixel(모자이크→선명) | silhouette(그림자→원본)
 alter table hq_questions add column if not exists reveal text not null default '';
 
--- 문항 고정: 랜덤 세트를 다시 만들어도 남는 문제(부장님·사진·투표 등 직접 만든 것)
+-- 문항 고정: 랜덤 세트를 다시 만들어도 남는 문제(사진 문제처럼 직접 만든 것)
 alter table hq_questions add column if not exists pinned boolean not null default false;
 
 -- 문제 은행: 랜덤 세트 재료. used 가 적은 문제부터 뽑아 매번 다른 문제가 나오게 한다.
