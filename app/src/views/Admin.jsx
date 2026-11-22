@@ -103,6 +103,18 @@ export default function Admin() {
           <XCircle size={20} /><span>이 문제 취소<small>열기 전으로 돌아가기 · 다시 열 수 있어요</small></span><ChevronRight size={18} /></button>
       </div>}
       {view.phase !== 'lobby' && view.phase !== 'q' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
+      {view.phase !== 'lobby' && <>
+        <p className="group-label">게임을 처음부터 다시</p>
+        <div className="group">
+          <button className="row-btn" disabled={busy} onClick={() => confirm('지금 게임을 멈추고 처음부터 다시 할까요?\n참가자는 그대로 남고 점수만 0점이 돼요. 1번 문제부터 다시 시작해요.') && run('restart')}>
+            <RotateCcw size={20} /><span>처음부터 다시 (참가자 유지)<small>닉네임 그대로 · 점수 0점 · 1번부터</small></span><ChevronRight size={18} /></button>
+          <button className="row-btn danger-row" disabled={busy} onClick={() => {
+            if (!confirm('지금 게임을 멈추고 새 게임으로 갈까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.')) return
+            if (!confirm('정말 모두 지울까요?')) return
+            run('reset')
+          }}><RotateCcw size={20} /><span>완전히 새로 (모두 다시 입장)<small>참가자·점수 모두 지우기</small></span></button>
+        </div>
+      </>}
       {view.ranking.length > 0 && <details className="group rank-fold"><summary>지금 순위 TOP 10</summary>
         {view.ranking.map((p) => <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>)}
       </details>}
