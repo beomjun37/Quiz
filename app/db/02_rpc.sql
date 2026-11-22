@@ -266,6 +266,24 @@ begin
       update hq_state set phase = 'draw', updated_at = now() where id = 1;
     end if;
 
+  elsif p_action = 'skip' then                      -- 문제 건너뛰기: 이 문제 답안을 지우고 점수 없이 다음 단계로
+    if p_arg ? 'from_phase' and (p_arg->>'from_phase' <> s.phase or (p_arg->>'from_qi')::int <> s.qi) then
+      return jsonb_build_object('ok', true, 'skipped', true);
+    end if;
+    if s.phase <> 'q' then raise exception 'NOT_OPEN'; end if;
+    delete from hq_answers where qi = s.qi;
+    update hq_players set card = null, card_qi = null, card_hide = null where card_qi = s.qi;
+    select * into nq from hq_questions where idx = s.qi + 1;
+    if nq.idx is null then
+      update hq_state set phase = 'final', updated_at = now() where id = 1;
+    elsif nq.is_bet then
+      update hq_state set phase = 'bet', updated_at = now() where id = 1;
+      insert into hq_bets (player_id, pct)
+        select id, (array[0,50,100])[1 + floor(random() * 3)::int] from hq_players where is_bot on conflict do nothing;
+    else
+      perform hq_open_q();
+    end if;
+
   elsif p_action = 'goto' then                      -- 연습용: 원하는 문제로 바로 이동(그 문제부터 답안·카드를 지우고 새로 연다)
     n := least(greatest((p_arg->>'qi')::int, 0), (select count(*) from hq_questions) - 1);
     delete from hq_answers where qi >= n;
@@ -368,7 +386,7 @@ begin
     end if;
     if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
     -- 고정 문항의 사진은 새 번호로 옮기고 나머지 사진은 정리
-    -- 최종 순서: 사진 문제는 은행 문제 사이에 고르게 흩고(첫 문제는 사진으로 시작), 그 밖의 고정 문제(부장님 등)는 뒤로, 베팅은 맨 끝.
+    -- 최종 순서: 사진 문제는 은행 문제 사이에 고르게 흩고(첫 문제는 사진으로 시작), 그 밖의 고정 문제는 뒤로, 베팅은 맨 끝.
     alter table _pick add column sk numeric;
     n := (select count(*) from _pick where bank_id is not null and not is_bet);
     i := (select count(*) from _pick where pinned and reveal <> '');

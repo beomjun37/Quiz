@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { rpc } from '../lib/supabase'
@@ -96,7 +96,13 @@ export default function Admin() {
         <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
         <button className="row-btn" onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={20} /><span>참가 링크 복사 (단톡방용)</span><ChevronRight size={18} /></button>
       </div>}
-      {view.phase !== 'lobby' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
+      {view.phase === 'q' && <div className="group">
+        <button className="row-btn" disabled={busy} onClick={() => confirm('이 문제를 건너뛸까요?\n낸 답은 지워지고, 점수 없이 바로 다음으로 넘어가요.') && run('skip', { from_phase: 'q', from_qi: view.qi })}>
+          <SkipForward size={20} /><span>이 문제 건너뛰기<small>점수 없이 바로 다음 문제로</small></span><ChevronRight size={18} /></button>
+        <button className="row-btn" disabled={busy} onClick={() => confirm('이 문제를 취소할까요?\n낸 답은 지워지고, 문제를 열기 전으로 돌아가요. (다시 열 수 있어요)') && run('back', { from_phase: 'q', from_qi: view.qi })}>
+          <XCircle size={20} /><span>이 문제 취소<small>열기 전으로 돌아가기 · 다시 열 수 있어요</small></span><ChevronRight size={18} /></button>
+      </div>}
+      {view.phase !== 'lobby' && view.phase !== 'q' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
       {view.ranking.length > 0 && <details className="group rank-fold"><summary>지금 순위 TOP 10</summary>
         {view.ranking.map((p) => <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>)}
       </details>}
@@ -297,7 +303,7 @@ function PinChange({ admin, busy, onChanged }) {
   </>
 }
 
-// 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(부장님·사진·투표 등)는 그대로 두고 나머지만 새로 뽑는다.
+// 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(사진 문제 등)는 그대로 두고 나머지만 새로 뽑는다.
 const CATS = ['추억', '가요', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
 function BankPanel({ admin, phase, setMsg, onDone }) {
   const [stats, setStats] = useState(null)
@@ -342,7 +348,6 @@ function QuestionCheck({ admin, images }) {
       if ((q.opts ?? []).some((o) => /^\(이름 \d\)$/.test(String(o).trim()))) out.push(['err', `${n(i)} 보기가 '(이름 1)' 같은 자리 표시예요`])
       if (!['poll', 'survey', 'minority'].includes(q.type) && q.answer == null) out.push(['err', `${n(i)} 정답이 없어요`])
       if (q.type === 'mc' && new Set(q.opts).size !== q.opts.length) out.push(['err', `${n(i)} 보기가 겹쳐요`])
-      if (q.round.includes('부장님') && !q.host) out.push(['warn', `${n(i)} 부장님 문제: 부장님께 정답 확인하셨나요?`])
       if (q.q.length > 60) out.push(['warn', `${n(i)} 문제가 길어서 폰에서 3줄 이상이에요`])
     })
     const bets = list.filter((q) => q.is_bet)
