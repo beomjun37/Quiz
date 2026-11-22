@@ -408,6 +408,17 @@ begin
       update hq_state set phase = 'draw', updated_at = now() where id = 1;
     end if;
 
+  elsif p_action = 'goto' then                      -- 연습용: 원하는 문제로 바로 이동(그 문제부터 답안·카드를 지우고 새로 연다)
+    n := least(greatest((p_arg->>'qi')::int, 0), (select count(*) from hq_questions) - 1);
+    delete from hq_answers where qi >= n;
+    update hq_players set card = null, card_qi = null, card_hide = null where card_qi >= n;
+    update hq_state set qi = n - 1, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
+    if (select is_bet from hq_questions where idx = n) then
+      update hq_state set phase = 'bet', q_started_at = null where id = 1;
+    else
+      perform hq_open_q();
+    end if;
+
   elsif p_action = 'end_msg' then
     update hq_state set end_msg = left(coalesce(p_arg->>'msg', ''), 120), updated_at = now() where id = 1;
 

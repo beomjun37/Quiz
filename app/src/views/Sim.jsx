@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Pause, Play, Square } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pause, Play, Square } from 'lucide-react'
 import Phone from './Phone'
 import { rpc } from '../lib/supabase'
 import { serverNow } from '../lib/clock'
@@ -55,6 +55,25 @@ function SimDriver({ admin }) {
   const [label, setLabel] = useState('준비 중')
   const since = useRef({ key: '', at: 0, drawn: false })
   const pausedRef = useRef(paused); pausedRef.current = paused
+  const last = useRef(null)
+  const [jumping, setJumping] = useState(false)
+  const jumpingRef = useRef(false)
+  // 이전/다음 문제로 바로 이동. 마지막 문제 다음은 최종 순위로.
+  async function jump(d) {
+    const v = last.current; if (!v || jumpingRef.current) return
+    jumpingRef.current = true; setJumping(true)
+    try {
+      const cur = v.phase === 'lobby' ? -1 : v.phase === 'bet' ? v.qi + 1 : ['final', 'draw', 'end'].includes(v.phase) ? v.total_q : v.qi
+      const to = cur + d
+      if (to < 0) return
+      if (to >= v.total_q) { if (v.phase === 'q' || v.phase === 'answer' || v.phase === 'bet') { await admin('goto', { qi: v.total_q - 1 }); await admin('next'); await admin('next') } last.current = await rpc('hq_view', {}); return }
+      await admin('goto', { qi: to })
+      since.current = { key: '', at: Date.now(), drawn: false }
+      // 바로 다시 읽어 둬야 연달아 눌러도 한 칸씩 정확히 움직인다
+      const me = (() => { try { return localStorage.getItem(KEY) } catch { return null } })()
+      last.current = await rpc('hq_view', { p_player: me })
+    } catch { /* noop */ } finally { jumpingRef.current = false; setJumping(false) }
+  }
   useEffect(() => {
     let dead = false, running = false
     const t = setInterval(async () => {
@@ -63,6 +82,7 @@ function SimDriver({ admin }) {
       try {
         const me = (() => { try { return localStorage.getItem(KEY) } catch { return null } })()
         const v = await rpc('hq_view', { p_player: me })
+        last.current = v
         const key = `${v.phase}:${v.qi}`
         if (since.current.key !== key) since.current = { key, at: Date.now(), drawn: false }
         const el = (Date.now() - since.current.at) / 1000
@@ -91,7 +111,9 @@ function SimDriver({ admin }) {
   }, []) // eslint-disable-line
 
   return <div className="sim-bar">
+    <button onClick={() => jump(-1)} disabled={jumping} aria-label="이전 문제"><ChevronLeft size={18} /></button>
     <span><b>연습 모드</b> · {paused ? '일시정지' : label}</span>
+    <button onClick={() => jump(1)} disabled={jumping} aria-label="다음 문제"><ChevronRight size={18} /></button>
     <button onClick={() => setPaused((p) => !p)} aria-label={paused ? '계속' : '일시정지'}>{paused ? <Play size={16} /> : <Pause size={16} />}</button>
     <button onClick={async () => {
       if (!confirm('연습을 끝낼까요? 가상 동료와 연습 기록을 지우고 대기 상태로 돌아가요.')) return
