@@ -295,6 +295,7 @@ begin
     'total_q', (select count(*) from hq_questions),
     'next_is_bet', coalesce(nq.is_bet, false),
     'players', (select count(*) from hq_players),
+    'humans', (select count(*) from hq_players where not is_bot),
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
         'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,

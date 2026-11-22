@@ -2,18 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
-import { QImage } from './Phone'
+import { QImage, useWakeLock } from './Phone'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
 import { errText, fmt, options, trap, REACT_EMOJI } from '../lib/ui'
 
+const savePin = (p) => { try { localStorage.setItem('hq-pin', p) } catch { /* noop */ } }
+
 // 진행자 노트북용. 권한은 서버(hq_admin)가 PIN으로 매번 검증한다. URL이 새도 조작 불가.
 export default function Admin() {
-  const [pin, setPin] = useState(() => sessionStorage.getItem('hq-pin') ?? '')
+  const [pin, setPin] = useState(() => { try { return localStorage.getItem('hq-pin') ?? sessionStorage.getItem('hq-pin') ?? '' } catch { return '' } })
   const [ok, setOk] = useState(false)
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
   const { view, refetch } = useView(null, 2000)
+  useWakeLock()
   const [qr, setQr] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [preview, setPreview] = useState(null)
@@ -50,7 +53,7 @@ export default function Admin() {
   const run = (action, arg) => admin(action, arg).catch(() => {})
 
   if (!ok) return <div className="admin" style={{ gridTemplateColumns: '1fr', maxWidth: 440 }}>
-    <form className="panel" onSubmit={(e) => { e.preventDefault(); admin('check').then(() => { sessionStorage.setItem('hq-pin', pin); setOk(true) }).catch(() => {}) }}>
+    <form className="panel" onSubmit={(e) => { e.preventDefault(); admin('check').then(() => { savePin(pin); setOk(true) }).catch(() => {}) }}>
       <h2><Lock size={20} />진행자 로그인</h2>
       <input type="password" inputMode="numeric" autoFocus placeholder="PIN" value={pin} onChange={(e) => setPin(e.target.value)} />
       <button className="go" disabled={busy}>들어가기<ChevronRight size={20} /></button>
@@ -88,12 +91,12 @@ export default function Admin() {
         {next && view.phase !== 'draw' && <button className="go big" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
         {view.phase === 'draw' && <DrawControl view={view} run={run} busy={busy} />}
         {view.phase === 'end' && <EndControl view={view} run={run} busy={busy} />}
-        {view.phase !== 'lobby' && <button className="undo" disabled={busy} onClick={undo}><Undo2 size={15} />잘못 눌렀어요, 한 단계 되돌리기</button>}
       </div>
       {view.phase === 'lobby' && <div className="group">
         <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
         <button className="row-btn" onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={20} /><span>참가 링크 복사 (단톡방용)</span><ChevronRight size={18} /></button>
       </div>}
+      {view.phase !== 'lobby' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
       {view.ranking.length > 0 && <details className="group rank-fold"><summary>지금 순위 TOP 10</summary>
         {view.ranking.map((p) => <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>)}
       </details>}
@@ -130,13 +133,18 @@ export default function Admin() {
       </div>
       <p className="group-label">다시 하기</p>
       <div className="group">
-        <button className="row-btn" disabled={busy} onClick={() => confirm('새 게임을 시작할까요?\n모든 참가자가 입장 화면으로 돌아가 닉네임부터 다시 입력해요.') && run('reset')}>
-          <RotateCcw size={20} /><span>새 게임<small>닉네임부터 다시 · 행사 후 기록 삭제</small></span><ChevronRight size={18} /></button>
         <button className="row-btn" disabled={busy} onClick={() => confirm('한 판 더 할까요?\n닉네임은 그대로, 점수만 0점이 돼요. (가상 참가자는 빠져요)') && run('restart')}>
           <RotateCcw size={20} /><span>한 판 더<small>닉네임 유지 · 점수만 0점</small></span><ChevronRight size={18} /></button>
       </div>
       <p className="group-label">보안</p>
-      <div className="group pad"><PinChange admin={admin} busy={busy} onChanged={(p) => { setPin(p); sessionStorage.setItem('hq-pin', p) }} /></div>
+      <div className="group pad"><PinChange admin={admin} busy={busy} onChanged={(p) => { setPin(p); savePin(p) }} /></div>
+      <div className="group">
+        <button className="row-btn danger-row" disabled={busy} onClick={() => {
+          if (!confirm('새 게임을 시작할까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.')) return
+          if (view.phase !== 'lobby' && !confirm('지금 게임이 진행 중이에요. 정말 모두 지울까요?')) return
+          run('reset')
+        }}><RotateCcw size={20} /><span>새 게임 (모든 기록 지우기)<small>리허설 후 · 행사가 끝난 뒤</small></span></button>
+      </div>
     </main>}
 
     <nav className="tabbar" aria-label="진행자 메뉴">
@@ -154,7 +162,7 @@ function MiniBar({ view, next, phaseKo, busy, run, onOpen }) {
   const left = useCountdown(view.phase === 'q' ? view.q_started_at : null, q?.limit_sec ?? 15)
   return <div className="minibar">
     <button className="mb-info" onClick={onOpen}><b>{phaseKo}</b>{view.phase === 'q' && <span className={`num ${left <= 5 ? 'hurry' : ''}`}>{Math.ceil(left)}초 · {view.submitted}/{view.players}</span>}</button>
-    {next && view.phase !== 'draw' && <button className="go" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}</button>}
+    <button className="mb-go" onClick={onOpen}>진행 탭으로<ChevronRight size={16} /></button>
   </div>
 }
 
@@ -185,7 +193,7 @@ function HostCard({ view, admin, onPreview }) {
   let say
   switch (view.phase) {
     case 'lobby':
-      say = `단톡방 링크로 들어와서 닉네임만 쓰면 입장입니다! 지금 ${view.players}명 들어왔어요. 빨리 맞힐수록 점수가 높고, 3연속 맞히면 보너스, 찬스 카드는 한 게임에 딱 한 장입니다. 그럼 시작합니다!`
+      say = `지금 ${view.players}명 들어왔어요! 링크 열고 닉네임만 쓰면 입장. 빨리 맞힐수록 고득점, 3연속이면 보너스! 시작합니다!`
       break
     case 'q':
       say = cur?.now?.host || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
@@ -262,6 +270,7 @@ function QrOverlay({ url, onClose }) {
     <div className="qr-box" onClick={(e) => e.stopPropagation()}>
       <button className="qr-close" onClick={onClose} aria-label="닫기"><Close size={22} /></button>
       <h2>폰 카메라로 찍고 입장!</h2>
+      <p style={{ margin: '0 0 10px', color: '#555', fontSize: 14 }}>잘 안 찍히면 이 폰의 화면 밝기를 올려 주세요</p>
       {src && <img src={src} alt="입장 QR 코드" />}
       <p>{url}</p>
     </div>
@@ -272,7 +281,7 @@ function PinChange({ admin, busy, onChanged }) {
   const [open, setOpen] = useState(false)
   const [a, setA] = useState(''), [b, setB] = useState('')
   const [err, setErr] = useState(null)
-  if (!open) return <><h3>보안</h3><button className="ghost" onClick={() => setOpen(true)}><KeyRound size={15} style={{ verticalAlign: -2 }} /> 진행자 PIN 바꾸기</button></>
+  if (!open) return <><button className="ghost" onClick={() => setOpen(true)}><KeyRound size={15} style={{ verticalAlign: -2 }} /> 진행자 PIN 바꾸기</button></>
   return <>
     <h3>진행자 PIN 바꾸기</h3>
     <input type="password" inputMode="numeric" placeholder="새 PIN (4~12자리)" value={a} onChange={(e) => setA(e.target.value)} />
@@ -364,6 +373,7 @@ function AutoRehearsal({ admin, view, setMsg }) {
   const live = useRef(view); live.current = view
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
   async function go() {
+    if ((view.humans ?? 0) > 0) { setMsg(`실제 참가자 ${view.humans}명이 들어와 있어서 자동 리허설을 할 수 없어요 (끝나면 기록이 지워져요)`); return }
     if (!confirm('자동 리허설을 시작할까요?\n가상 참가자 30명으로 끝까지 빠르게 진행한 뒤, 새 게임으로 정리해요.\n(실제 참가자가 있으면 그분들도 같이 진행돼요)')) return
     stop.current = false; setRunning(true)
     try {

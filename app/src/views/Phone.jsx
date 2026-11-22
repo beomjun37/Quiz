@@ -10,6 +10,16 @@ import { serverNow } from '../lib/clock'
 import { fx, unlockAudio } from '../lib/fx'
 
 const KEY = 'hq-player'
+
+// 게임 중 화면이 꺼지지 않게(지원하는 브라우저만). 다른 앱에 다녀오면 다시 요청한다.
+export function useWakeLock() {
+  useEffect(() => {
+    let lock = null
+    const req = async () => { try { if (document.visibilityState === 'visible') lock = await navigator.wakeLock?.request('screen') } catch { /* 미지원 */ } }
+    req(); document.addEventListener('visibilitychange', req)
+    return () => { document.removeEventListener('visibilitychange', req); try { lock?.release() } catch { /* noop */ } }
+  }, [])
+}
 const load = () => { try { return localStorage.getItem(KEY) } catch { return null } }
 const store = (v) => { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY) } catch { /* 사생활 모드 */ } }
 
@@ -24,6 +34,7 @@ export default function Phone() {
   // 진행자가 새 게임을 시작해 내 기록이 사라졌으면 입장부터 다시
   useEffect(() => { if (view && pid && view._for === pid && !view.me) { store(null); setPid(null); setKicked(true) } }, [view, pid])
   useEffect(() => { setMsg(null) }, [view?.phase, view?.qi])
+  useWakeLock()
   useEffect(() => {
     const f = () => unlockAudio()
     addEventListener('pointerdown', f); return () => removeEventListener('pointerdown', f)
@@ -217,7 +228,7 @@ function Question({ view, me, act, busy }) {
     {canCard && <div className="cards">
       {q.type === 'mc' && <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'fifty' }))}><Split size={18} />50:50</button>}
       <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'double' }))}><Zap size={18} />점수 2배</button>
-      <small>찬스 카드는 게임 전체에서 딱 1장. 50:50은 오답 2개 지우기, 점수 2배는 맞히면 이 문제 점수가 두 배예요.</small>
+      {q.idx <= 1 && <small>찬스 카드는 게임 전체에서 딱 1장! 50:50은 오답 2개 지우기, 2배는 맞히면 점수 두 배.</small>}
     </div>}
     <div className={`choices ${ox ? 'ox' : ''}`}>
       {options(q).map(([label, k, bg, dark], i) => hide.includes(i)
@@ -285,6 +296,7 @@ function Result({ view, me }) {
       ? <div className="verdict none"><h2>투표 결과</h2></div>
       : <div className={`verdict ${none ? 'none' : ok ? 'ok' : 'no'}`}>
           <h2>{none ? '시간 초과' : ok ? '정답!' : '아쉽다'}</h2>
+          {!ok && q.answer != null && <p className="verdict-sub">정답 <b>{options(q)[q.answer][0]}</b>{!none && <> · 내 답 {options(q)[me.answer][0]}</>}</p>}
           <div className="gain num">{me.gain > 0 ? '+' : ''}{fmt(me.gain)}</div>
           {chips.length > 0 && <div className="chips">{chips.map(([icon, t], i) => <span key={i}>{icon}{t}</span>)}</div>}
         </div>}
@@ -350,7 +362,7 @@ function Final({ view, me }) {
     <div className={`panel my-final ${me.rank <= 3 ? 'win' : ''}`}>
       <small>내 순위</small>
       <b className="num">{view.players}명 중 {me.rank}위</b>
-      <span>{me.rank <= 3 ? `축하해요! ${me.rank}등 상품의 주인공이에요` : '아쉽지만, 이제 행운상 추첨이 남았어요'}</span>
+      <span>{me.rank <= 3 ? `축하해요! ${me.rank}등 상품의 주인공이에요` : '아직 행운상 추첨이 남았어요!'}</span>
     </div>
     {view.ranking.length > 3 && <Top5 title="4등부터" view={{ ...view, ranking: view.ranking.slice(3, 8) }} />}
   </>
@@ -413,7 +425,7 @@ function End({ view, me }) {
       </div>
     </div>
     <p className="lead" style={{ textAlign: 'center', fontSize: 15 }}>이 화면을 캡처해서 단톡방에 자랑해 보세요</p>
-    {view.end_credits && <p className="credits">{view.end_credits}</p>}
+    {view.end_credits && <details className="credits"><summary>사진 출처</summary>{view.end_credits}</details>}
   </>
 }
 
