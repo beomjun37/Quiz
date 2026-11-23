@@ -516,7 +516,7 @@ function PreviewModal({ list, start, admin, images, audios = [], bank = false, o
   const pq = { ...q, idx, has_image: hasImage, limit_sec: limit }
   const opts = q.type ? options(pq) : []
   const ox = q.type === 'ox'
-  return <div className="qr-overlay" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
+  return <div className="qr-overlay preview-layer" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
     <div className="preview" onClick={(e) => e.stopPropagation()}>
       <div className="preview-bar">
         <b className="num">{idx + 1} / {list.length}번 · <span style={{ color: 'var(--soju)' }}>{doneCount}개 확인</span></b>
