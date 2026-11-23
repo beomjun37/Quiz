@@ -1,6 +1,6 @@
-delete from hq_bank where cat = '노래' and media not like 'https://%';
 -- 문제 은행. 다시 실행해도 같은 문제는 중복으로 들어가지 않고 내용만 갱신된다(문제 글 기준).
 delete from hq_bank where q in ('1997년 IMF 구제금융을 신청할 당시 대통령은?','MBTI에서 "E"가 뜻하는 것은?','엑셀에서 합계를 구하는 함수는?','초성 퀴즈! "ㄱㄴㅅㅌㅇ", 2012년 전 세계가 말춤을 춘 노래는?','듀스의 멤버는 김성재와 누구?','"잘못된 만남"을 부른 가수는?','함흥냉면은 원래 비빔냉면으로 유명하다.','2018 평창 동계올림픽의 마스코트는?','골프에서 파(Par)보다 2타 적게 치면?','100명에게 물었습니다! 회식 2차로 가장 가고 싶은 곳은?');
+delete from hq_bank where cat = '노래' and media not like 'https://%';
 -- 보기 순서는 여기서 한 번 섞어서 넣는다(정답이 늘 1번이 되지 않게).
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','2002 월드컵 4강전, 한국의 상대 팀은?','["터키", "스페인", "독일", "이탈리아"]'::jsonb,2,'0:1 패배. 16강 이탈리아, 8강 스페인, 3·4위전은 터키였어요','4강까지는 다 아시죠? 그럼 4강 상대는요?','2002','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','2002 월드컵 16강 이탈리아전, 연장 골든골의 주인공은?','["박지성", "설기현", "황선홍", "안정환"]'::jsonb,3,'설기현 동점골, 안정환 헤딩 골든골!','반지 키스 기억나시는 분?','2002','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
