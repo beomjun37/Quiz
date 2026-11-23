@@ -344,10 +344,10 @@ function PinChange({ admin, busy, onChanged }) {
 }
 
 // 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(사진 문제 등)는 그대로 두고 나머지만 새로 뽑는다.
-const CATS = ['추억', '가요', '노래', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
+const CATS = ['추억', '가요', '노래', '이모지', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
 function BankPanel({ admin, phase, setMsg, onDone }) {
   const [stats, setStats] = useState(null)
-  const [counts, setCounts] = useState({ 추억: 2, 가요: 1, 노래: 1, '요즘 말': 1, 예능: 1, 회사: 1, 상식: 1, 다수결: 1, 소수결: 1 })
+  const [counts, setCounts] = useState({ 추억: 1, 가요: 1, 노래: 2, 이모지: 2, '요즘 말': 1, 예능: 1, 회사: 0, 상식: 0, 다수결: 1, 소수결: 1 })
   const [minDiff, setMinDiff] = useState(2)
   const [bet, setBet] = useState(true)
   useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
@@ -583,7 +583,7 @@ function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved, bank = fa
 
 // 문제 은행 둘러보기: 카테고리를 고르면 그 카테고리 전체 문제를 참가자·진행자 화면으로 넘겨 본다
 const BANK_CATS = [['추억', '추억 소환'], ['가요', '추억의 가요'], ['노래', '노래 퀴즈'], ['요즘 말', '요즘 말 테스트'], ['예능', '예능·드라마'],
-  ['회사', '회사 생활'], ['상식', '상식 퀴즈'], ['다수결', '100명에게 물었습니다'], ['소수결', '소수가 이긴다'], ['베팅', '올인 베팅']]
+  ['이모지', '이모지 퀴즈'], ['회사', '회사 생활'], ['상식', '상식 퀴즈'], ['다수결', '100명에게 물었습니다'], ['소수결', '소수가 이긴다'], ['베팅', '올인 베팅']]
 function BankBrowser({ admin, phase, setMsg, onPreview, onAdded }) {
   const [stats, setStats] = useState(null)
   const [cat, setCat] = useState(null)
