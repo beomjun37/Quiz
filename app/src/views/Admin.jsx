@@ -582,7 +582,7 @@ function LiveSong({ view, questions, audios, admin, onSaved }) {
   const media = questions[idx].media
   return <div className={idx === nxt ? 'song-next' : ''}>
     {idx === nxt && <p className="lead" style={{ fontSize: 15, margin: '0 0 6px' }}>다음 {idx + 1}번은 노래 문제예요. <b>광고 먼저 넘기기</b>를 눌러 두면 문제를 열 때 바로 노래가 나와요.</p>}
-    <YTPlayer key={`yt${idx}`} media={media} onSaveStart={async (sec) => { await admin('set_media', { idx, media: withStart(media, sec) }); onSaved() }} />
+    <YTPlayer key={`yt${idx}`} media={media} title={questions[idx].note} onSaveStart={async (sec) => { await admin('set_media', { idx, media: withStart(media, sec) }); onSaved() }} />
   </div>
 }
 
@@ -604,7 +604,7 @@ function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved, bank = fa
     {q.note && <div className="panel note"><span>해설 · {q.note}</span></div>}
     {hasImage && <div className="review-img">{img ? <img src={img} alt="사진 원본" /> : <span className="lead">사진 불러오는 중…</span>}<small>사진 원본 · 연출: {revealKo ?? '그대로'}</small></div>}
     {hasAudio && <ClipPlayer admin={admin} idx={idx} key={`rc${idx}`} />}
-    {!hasAudio && q.media && parseYouTube(q.media) && <YTPlayer media={q.media} key={`ry${idx}`} onSaveStart={onSaved ? async (sec) => { await admin('set_media', { idx, media: withStart(q.media, sec) }); onSaved() } : undefined} />}
+    {!hasAudio && q.media && parseYouTube(q.media) && <YTPlayer media={q.media} title={q.note} key={`ry${idx}`} onSaveStart={onSaved ? async (sec) => { await admin('set_media', { idx, media: withStart(q.media, sec) }); onSaved() } : undefined} />}
     {!hasAudio && q.media && !parseYouTube(q.media) && <div className="warn"><AlertTriangle size={16} />노래 검색어만 있어요 ("{q.media}") · 유튜브 링크나 음원을 넣으면 바로 재생돼요</div>}
   </div>
 }
