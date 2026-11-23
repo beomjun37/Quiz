@@ -61,3 +61,14 @@ export function revealOf(q) {
   const [x, y] = (at ?? '0.5,0.5').split(',').map(Number)
   return { mode, x: Number.isFinite(x) ? x : 0.5, y: Number.isFinite(y) ? y : 0.5 }
 }
+
+// 노래 문제 media: 유튜브 링크면 영상 id 와 시작 초를 뽑는다(진행자 화면에서 바로 재생). 아니면 검색어.
+export function parseYouTube(media) {
+  const m = String(media ?? '').trim()
+  const id = m.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{11})/)?.[1]
+  if (!id) return null
+  const ms = m.match(/[?&]t=(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?(?=&|$|#)/)
+  const plain = m.match(/[?&](?:t|start)=(\d+)(?=&|$|#)/)?.[1]
+  const t = plain ?? (ms && (ms[1] || ms[2] || ms[3]) ? (Number(ms[1] || 0) * 3600 + Number(ms[2] || 0) * 60 + Number(ms[3] || 0)) : 0)
+  return { id, start: Number(t) || 0 }
+}

@@ -98,7 +98,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
               </div>))}</div>}
         {e.reveal.startsWith('zoom') && images.includes(i) && !dirty && <FocusPicker admin={admin} idx={i} value={e.reveal} onPick={(v) => edit(i, { reveal: v })} />}
         <input placeholder="해설 (정답 공개 때 보여요)" value={e.note} onChange={(ev) => edit(i, { note: ev.target.value })} />
-        <input placeholder="🎵 노래 퀴즈면 노래 검색어 (예: 쿨 해변의 여인) · 진행자 화면에만 보여요" value={e.media} onChange={(ev) => edit(i, { media: ev.target.value })} />
+        <input placeholder="🎵 노래 퀴즈: 유튜브 링크(바로 재생) 또는 검색어 · 진행자에게만 보여요" value={e.media} onChange={(ev) => edit(i, { media: ev.target.value })} />
         <input placeholder="진행자 멘트 (문제 열 때 읽을 말, 선택)" value={e.host} onChange={(ev) => edit(i, { host: ev.target.value })} />
         <div className="qe-foot">
           <label>제한 시간 <select value={e.limit_sec} onChange={(ev) => edit(i, { limit_sec: +ev.target.value })}>
