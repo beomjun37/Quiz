@@ -629,7 +629,8 @@ begin
       when p.is_bet then 1e9
       when p.bank_id is not null then (select count(*) from _pick x where x.bank_id is not null and not x.is_bet and x.ord < p.ord) * 10 + 5
       when p.reveal <> '' then round((select count(*) from _pick x where x.pinned and x.reveal <> '' and x.ord < p.ord) * n::numeric / greatest(i, 1)) * 10
-      else 1e8 + p.ord end;
+      else 1e8 + p.ord end
+    where true;  -- Supabase 는 WHERE 없는 UPDATE 를 막는다
     create temp table _ord on commit drop as select ord, row_number() over (order by sk, ord) - 1 as idx from _pick;
     create temp table _img on commit drop as
       select o.idx, i.data from _pick p join _ord o on o.ord = p.ord join hq_images i on i.idx = p.old_idx;

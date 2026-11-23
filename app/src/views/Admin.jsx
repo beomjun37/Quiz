@@ -394,7 +394,9 @@ function QuestionCheck({ admin, images }) {
     if (bets.length === 0) out.push(['warn', '마지막 올인 베팅 문제가 없어요'])
     if (bets.length > 1) out.push(['err', '베팅 문제가 2개 이상이에요'])
     if (bets.length === 1 && !list[list.length - 1].is_bet) out.push(['warn', '베팅 문제가 맨 마지막이 아니에요'])
-    const dup = list.map((q) => q.q).filter((x, i, a) => a.indexOf(x) !== i)
+    // 노래 문제는 문제 글이 같으므로 문제 글 + 노래 + 보기까지 같아야 중복
+    const key = (q) => `${q.q}|${q.media ?? ''}|${(q.opts ?? []).join(',')}`
+    const dup = list.map(key).filter((x, i, a) => a.indexOf(x) !== i).map((k) => k.split('|')[0])
     if (dup.length) out.push(['err', `같은 문제가 두 번 있어요: ${dup[0].slice(0, 20)}…`])
     if (list.length < 8) out.push(['warn', `문제가 ${list.length}개라 너무 짧아요 (12~15개 추천)`])
     if (list.length > 18) out.push(['warn', `문제가 ${list.length}개라 길어요 (12~15개 추천)`])
