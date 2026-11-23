@@ -5,7 +5,7 @@ import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, trap, REACT_EMOJI } from '../lib/ui'
+import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube } from '../lib/ui'
 
 const savePin = (p) => { try { localStorage.setItem('hq-pin', p) } catch { /* noop */ } }
 
@@ -243,7 +243,8 @@ function HostCard({ view, admin, onPreview }) {
     {view.phase === 'answer' && view.reactions && <div className="host-ans">반응 {['clap', 'lol', 'beer', 'fire'].map((k) => `${REACT_EMOJI[k]} ${view.reactions[k] ?? 0}`).join('  ')}</div>}
     {nx && nx.reveal && !nx.has_image && ['lobby', 'answer', 'bet'].includes(view.phase) &&
       <div className="warn"><AlertTriangle size={16} />다음 {nx.idx + 1}번은 사진 문제인데 사진이 없어요. 문항 편집에서 붙이거나 건너뛰세요.</div>}
-    {q && ['q', 'answer'].includes(view.phase) && cur?.now?.media && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
+    {q && ['q', 'answer'].includes(view.phase) && cur?.now?.media && parseYouTube(cur.now.media) && <SongPlayer media={cur.now.media} key={q.idx} />}
+    {q && ['q', 'answer'].includes(view.phase) && cur?.now?.media && !parseYouTube(cur.now.media) && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
       <Music size={22} /><span>노래 틀기: {cur.now.media}<small>유튜브가 열려요 · 앞부분 10초만 틀고 멈추세요</small></span></a>}
     {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
       정답 <b>{label(q, cur.now.answer)}</b>{cur.now.note && <span> · {cur.now.note}</span>}</div>}
@@ -251,7 +252,7 @@ function HostCard({ view, admin, onPreview }) {
       <small>다음 {nx.idx + 1}번{nx.is_bet ? ' (베팅 문제)' : ''}</small>
       <p>{nx.q}</p>
       <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
-      {nx.media && <span style={{ display: 'block', marginTop: 4 }}><Music size={14} /> 노래 퀴즈: 미리 "{nx.media}" 검색해 두세요</span>}
+      {nx.media && <span style={{ display: 'block', marginTop: 4 }}><Music size={14} /> {parseYouTube(nx.media) ? '노래 퀴즈: 문제를 열면 여기서 바로 재생돼요' : `노래 퀴즈: 미리 "${nx.media}" 검색해 두세요 (문항 편집에 유튜브 링크를 넣으면 바로 재생)`}</span>}
       <button className="ghost" style={{ margin: '8px 0 0', display: 'block' }} onClick={() => onPreview(nx, nx.idx)}><Smartphone size={15} style={{ verticalAlign: -2 }} /> 참가자 화면 미리보기</button>
     </div>}
   </div>
@@ -469,6 +470,23 @@ function PreviewModal({ list, start, admin, images, onClose }) {
         <button className="ghost" onClick={() => { setReveal(false); setT0(Date.now()) }} aria-label="다시 재생"><RotateCw size={16} style={{ verticalAlign: -3 }} /></button>
         <button className="go" disabled={idx >= list.length - 1} onClick={() => setIdx((v) => v + 1)} aria-label="다음 문제">다음 <ChevronRight size={18} style={{ verticalAlign: -3 }} /></button>
       </div>
+    </div>
+  </div>
+}
+
+// 노래 바로 재생: 유튜브 공식 플레이어를 진행자 화면에 넣고, 누르면 지정 구간을 15초 재생 후 자동 정지.
+// 소리는 진행자 폰(또는 연결한 스피커)에서만 난다. 참가자 폰마다 틀면 박자가 어긋나서 진행자 폰 하나로.
+function SongPlayer({ media }) {
+  const yt = parseYouTube(media)
+  const [play, setPlay] = useState(0)
+  const [len, setLen] = useState(15)
+  if (!yt) return null
+  const src = `https://www.youtube-nocookie.com/embed/${yt.id}?autoplay=1&start=${yt.start}&end=${yt.start + len}&controls=1&playsinline=1&rel=0`
+  return <div className="song">
+    {play > 0 && <iframe key={play} src={src} title="노래 재생" allow="autoplay; encrypted-media" className="song-frame" />}
+    <div className="song-row">
+      <button className="music-btn" onClick={() => setPlay((n) => n + 1)}><Music size={22} /><span>{play ? '다시 듣기' : '노래 바로 재생'}<small>{yt.start >= 60 ? `${Math.floor(yt.start / 60)}분 ${yt.start % 60}초부터 ` : yt.start ? `${yt.start}초부터 ` : '처음부터 '}{len}초 재생</small></span></button>
+      <div className="seg song-len">{[10, 15, 30].map((n) => <button key={n} type="button" className={len === n ? 'on' : ''} onClick={() => setLen(n)}>{n}초</button>)}</div>
     </div>
   </div>
 }

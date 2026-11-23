@@ -145,6 +145,15 @@ function Lobby({ view, me, act, busy, leave }) {
       <h3><Users size={18} />지금 들어온 사람 <b className="num">{view.players}명</b></h3>
       <div className="who-list">{(view.roster ?? []).map((p) => <span key={p.name} className={p.is_me ? 'me' : ''}>{p.name}</span>)}</div>
     </div>
+    <div className="panel howto">
+      <h3>이렇게 하면 돼요</h3>
+      <ol>
+        <li>문제가 뜨면 <b>보기 버튼 하나만 꾹</b> 누르세요</li>
+        <li>정답은 <b>내 폰</b>에 바로 떠요 (초록색이 정답)</li>
+        <li>빨리 누를수록 점수 UP · 한 번 누르면 못 바꿔요</li>
+      </ol>
+      <Practice />
+    </div>
     <div className="panel rules">
       <h3>점수 따는 법</h3>
       <div><Zap size={20} /><span><b>빨리 맞힐수록</b> 최대 1,000점</span></div>
@@ -453,5 +462,21 @@ function RosterSheet({ view, onClose }) {
         </div>)}
       </div>
     </div>
+  </div>
+}
+
+// 대기 중 연습 한 문제(점수 없음, 서버에 안 보냄): 누르는 법과 정답 화면을 미리 익힌다
+function Practice() {
+  const [pick, setPick] = useState(null)
+  const opts = [['O', 'var(--o)'], ['X', 'var(--x)']]
+  return <div className="panel practice">
+    <p style={{ margin: '0 0 10px', fontWeight: 800 }}>연습 문제 · 점수 없음</p>
+    <p style={{ margin: '0 0 12px', fontSize: 20 }}>"오늘 회식 퀴즈 이름은 한잔 퀴즈다"</p>
+    {pick == null
+      ? <div className="choices ox" style={{ marginTop: 0 }}>{opts.map(([l, c], i) => <button key={l} className="choice" style={{ background: c, minHeight: 90, fontSize: 44 }} onClick={() => { setPick(i); i === 0 ? fx.correct() : fx.wrong() }}>{l}</button>)}</div>
+      : <div className={`verdict ${pick === 0 ? 'ok' : 'no'}`} style={{ padding: '18px 12px' }}>
+          <h2 style={{ fontSize: 30 }}>{pick === 0 ? '정답! 이렇게 하면 돼요' : '아쉽다! 정답은 O'}</h2>
+          <button className="link" style={{ color: 'inherit' }} onClick={() => setPick(null)}>다시 해 보기</button>
+        </div>}
   </div>
 }
