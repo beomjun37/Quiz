@@ -17,6 +17,7 @@ export const ERR = {
   CARD_NOT_NOW: '이 문제에서는 그 카드를 쓸 수 없어요',
   IMAGE_TOO_BIG: '사진이 너무 커요. 다른 사진을 골라 주세요',
   BAD_NEW_PIN: 'PIN은 4~12자리로 정해 주세요',
+  ALREADY_IN_SET: '이미 지금 세트에 있는 문제예요',
   NOT_LOBBY: '게임이 시작된 뒤에는 닉네임을 바꿀 수 없어요',
   BAD_PIN: 'PIN이 틀렸어요',
   PIN_LOCKED: 'PIN을 여러 번 틀려서 5분 동안 잠겼어요',

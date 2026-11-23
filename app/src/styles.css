@@ -385,6 +385,14 @@ svg { flex-shrink: 0; }
 .host-review { gap: 12px; }
 .review-img { display: grid; gap: 6px; } .review-img img { width: 100%; border-radius: 12px; display: block; } .review-img small { color: var(--mute); font-size: 13px; }
 .preview-actions .checked { background: var(--soju); color: var(--soju-ink); font-weight: 800; }
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 12px; }
+.cat-chips button { background: var(--ink-3); border-radius: 999px; padding: 8px 12px; font-size: 15px; font-weight: 700; }
+.cat-chips button b { color: var(--beer); margin-left: 2px; } .cat-chips button.on { background: var(--beer); color: var(--beer-ink); } .cat-chips button.on b { color: var(--beer-ink); }
+.bank-items { border-top: 1px solid var(--line); }
+.bank-item { width: 100%; display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; padding: 12px 14px; text-align: left; border-top: 1px solid var(--line); font-size: 15px; }
+.bank-item .bq { line-height: 1.4; } .bank-item small { color: var(--mute); font-size: 12px; }
+.diff { font-size: 12px; font-weight: 800; border-radius: 6px; padding: 3px 0; text-align: center; }
+.diff.d1 { background: rgb(61 220 151 / 0.18); color: var(--soju); } .diff.d2 { background: rgb(255 181 71 / 0.18); color: var(--beer); } .diff.d3 { background: rgb(255 90 95 / 0.18); color: #ff8a8e; }
 .howto { display: grid; gap: 10px; }
 .howto h3 { margin: 0; font-size: 17px; color: var(--mute); }
 .howto ol { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 18px; }

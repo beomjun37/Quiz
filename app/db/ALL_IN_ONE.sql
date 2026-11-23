@@ -566,6 +566,29 @@ begin
       select cat, jsonb_build_object('1', count(*) filter (where diff = 1), '2', count(*) filter (where diff = 2),
                                      '3', count(*) filter (where diff = 3)) x from hq_bank group by cat) z);
 
+  elsif p_action = 'bank_list' then                 -- 문제 은행 둘러보기: 카테고리별 전체 문제
+    return (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'cat', cat, 'diff', diff, 'type', type, 'q', q, 'opts', opts,
+              'answer', answer, 'note', note, 'host', host, 'media', media, 'used', used) order by diff, id), '[]')
+            from hq_bank where cat = p_arg->>'cat');
+
+  elsif p_action = 'bank_add' then                  -- 은행 문제를 지금 세트에 넣기(베팅 문제 앞, 고정). 대기 단계에서만
+    if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
+    if exists (select 1 from hq_questions q join hq_bank b on b.q = q.q and b.media = q.media where b.id = (p_arg->>'id')::int) then raise exception 'ALREADY_IN_SET'; end if;
+    n := coalesce((select min(idx) from hq_questions where is_bet), (select count(*) from hq_questions));
+    update hq_questions set idx = idx + 1000 where idx >= n;
+    update hq_images set idx = idx + 1000 where idx >= n;
+    update hq_audio set idx = idx + 1000 where idx >= n;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
+      select n, (case cat when '추억' then '추억 소환' when '가요' then '추억의 가요' when '노래' then '노래 퀴즈' when '요즘 말' then '요즘 말 테스트'
+                 when '예능' then '예능·드라마 소환' when '회사' then '회사 생활' when '상식' then '상식 퀴즈' when '다수결' then '100명에게 물었습니다'
+                 when '소수결' then '소수가 이긴다' else '올인 베팅' end),
+             type, q, opts, answer, note, false, case when media <> '' then 25 else 15 end, host, '', true, media
+      from hq_bank where id = (p_arg->>'id')::int;
+    update hq_questions set idx = idx - 999 where idx >= 1000;
+    update hq_images set idx = idx - 999 where idx >= 1000;
+    update hq_audio set idx = idx - 999 where idx >= 1000;
+    update hq_bank set used = used + 1 where id = (p_arg->>'id')::int;
+
   elsif p_action = 'compose' then
     -- 랜덤 세트 만들기. 순서: 은행 카테고리(추억→요즘 말→예능→상식) → 고정 문항(원래 순서) → 베팅 1문제.
     -- p_arg: {"counts": {"추억": 3, ...}, "min_diff": 2, "bet": true}
@@ -741,7 +764,7 @@ insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,hos
 insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (11,'사진 퀴즈','mc','어린 시절 사진! 이 아이는 커서 어떤 연예인이 됐을까요?','["(이름 1)", "(이름 2)", "(이름 3)", "(이름 4)"]'::jsonb,0,'떡잎부터 달랐네요',false,20,'이 귀여운 아이가 누구로 자랐을까요? 사진이 점점 선명해집니다!','blur',true);
 insert into hq_questions (idx,round,type,q,opts,answer,note,is_bet,limit_sec,host,reveal,pinned) values (14,'올인 베팅','mc','1997년 IMF 때 "금 모으기 운동"으로 모인 금은 약 몇 톤?','["약 50톤", "약 120톤", "약 227톤", "약 500톤"]'::jsonb,2,'약 350만 명이 참여했어요',true,15,'마지막 문제! 지금까지 모은 점수를 걸고 역전을 노려 보세요.','',false);
 -- 문제 은행. 다시 실행해도 같은 문제는 중복으로 들어가지 않고 내용만 갱신된다(문제 글 기준).
-delete from hq_bank where q in ('1997년 IMF 구제금융을 신청할 당시 대통령은?','MBTI에서 "E"가 뜻하는 것은?','엑셀에서 합계를 구하는 함수는?','초성 퀴즈! "ㄱㄴㅅㅌㅇ", 2012년 전 세계가 말춤을 춘 노래는?','듀스의 멤버는 김성재와 누구?','"잘못된 만남"을 부른 가수는?','함흥냉면은 원래 비빔냉면으로 유명하다.','2018 평창 동계올림픽의 마스코트는?','골프에서 파(Par)보다 2타 적게 치면?','100명에게 물었습니다! 회식 2차로 가장 가고 싶은 곳은?');
+delete from hq_bank where q in ('1997년 IMF 구제금융을 신청할 당시 대통령은?','MBTI에서 "E"가 뜻하는 것은?','엑셀에서 합계를 구하는 함수는?','초성 퀴즈! "ㄱㄴㅅㅌㅇ", 2012년 전 세계가 말춤을 춘 노래는?','듀스의 멤버는 김성재와 누구?','"잘못된 만남"을 부른 가수는?','함흥냉면은 원래 비빔냉면으로 유명하다.','2018 평창 동계올림픽의 마스코트는?','"포기하면 그 순간이 바로 시합 종료예요." 슬램덩크에서 이 말을 한 사람은?','골프에서 파(Par)보다 2타 적게 치면?','100명에게 물었습니다! 회식 2차로 가장 가고 싶은 곳은?');
 delete from hq_bank where cat = '노래' and media not like 'https://%';
 -- 보기 순서는 여기서 한 번 섞어서 넣는다(정답이 늘 1번이 되지 않게).
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','2002 월드컵 4강전, 한국의 상대 팀은?','["터키", "스페인", "독일", "이탈리아"]'::jsonb,2,'0:1 패배. 16강 이탈리아, 8강 스페인, 3·4위전은 터키였어요','4강까지는 다 아시죠? 그럼 4강 상대는요?','2002','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
@@ -756,7 +779,7 @@ insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values (
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',1,'mc','"응답하라 1988"의 배경이 된 동네는?','["신촌", "봉천동", "성수동", "쌍문동"]'::jsonb,3,'덕선이네 골목, 쌍문동이었죠','응팔 정주행하신 분들 손!','reply','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','1994년 드라마 "마지막 승부"의 소재가 된 스포츠는?','["축구", "농구", "배구", "야구"]'::jsonb,1,'장동건·손지창, 그리고 농구 붐','"마지막 승부" 주제곡 흥얼거리실 수 있는 분?','lastgame','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','만화 "슬램덩크" 강백호의 등번호는?','["7번", "4번", "11번", "10번"]'::jsonb,3,'서태웅이 11번, 채치수가 4번이에요','농구 좀 하셨던 분들, 등번호 기억나세요?','slamdunk','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
-insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','"포기하면 그 순간이 바로 시합 종료예요." 슬램덩크에서 이 말을 한 사람은?','["채치수", "서태웅", "안 선생님", "강백호"]'::jsonb,2,'북산고 안 선생님의 명대사','인생 명언 하나 갑니다.','slamdunk','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','슬램덩크 명대사 "포기하면 그 순간이 시합 종료예요"의 주인공은?','["채치수", "서태웅", "안 선생님", "강백호"]'::jsonb,2,'북산고 안 선생님의 명대사','인생 명언 하나 갑니다.','slamdunk','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',1,'ox','싸이월드 화폐 이름은 "도토리"였다.','[]'::jsonb,0,'미니홈피 BGM 사려고 충전하셨죠?','도토리 충전해 보신 분?','cyworld','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',2,'mc','스타크래프트에서 "show me the money"를 입력하면?','["유닛이 무적이 된다", "건설이 바로 끝난다", "자원이 생긴다", "맵이 다 보인다"]'::jsonb,2,'PC방 시간당 1,000원이던 시절','PC방 좀 다니신 분들은 바로 아실 겁니다.','starcraft','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media) values ('추억',3,'mc','스타크래프트 치트키 "power overwhelming"의 효과는?','["자원 획득", "빠른 건설", "맵 전체 보기", "유닛 무적"]'::jsonb,3,'"black sheep wall"은 맵 보기, "operation cwal"은 빠른 건설','이건 진짜 고수만 압니다.','starcraft','') on conflict (q, media) do update set cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;

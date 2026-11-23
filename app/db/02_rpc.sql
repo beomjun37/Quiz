@@ -403,6 +403,29 @@ begin
       select cat, jsonb_build_object('1', count(*) filter (where diff = 1), '2', count(*) filter (where diff = 2),
                                      '3', count(*) filter (where diff = 3)) x from hq_bank group by cat) z);
 
+  elsif p_action = 'bank_list' then                 -- 문제 은행 둘러보기: 카테고리별 전체 문제
+    return (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'cat', cat, 'diff', diff, 'type', type, 'q', q, 'opts', opts,
+              'answer', answer, 'note', note, 'host', host, 'media', media, 'used', used) order by diff, id), '[]')
+            from hq_bank where cat = p_arg->>'cat');
+
+  elsif p_action = 'bank_add' then                  -- 은행 문제를 지금 세트에 넣기(베팅 문제 앞, 고정). 대기 단계에서만
+    if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
+    if exists (select 1 from hq_questions q join hq_bank b on b.q = q.q and b.media = q.media where b.id = (p_arg->>'id')::int) then raise exception 'ALREADY_IN_SET'; end if;
+    n := coalesce((select min(idx) from hq_questions where is_bet), (select count(*) from hq_questions));
+    update hq_questions set idx = idx + 1000 where idx >= n;
+    update hq_images set idx = idx + 1000 where idx >= n;
+    update hq_audio set idx = idx + 1000 where idx >= n;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
+      select n, (case cat when '추억' then '추억 소환' when '가요' then '추억의 가요' when '노래' then '노래 퀴즈' when '요즘 말' then '요즘 말 테스트'
+                 when '예능' then '예능·드라마 소환' when '회사' then '회사 생활' when '상식' then '상식 퀴즈' when '다수결' then '100명에게 물었습니다'
+                 when '소수결' then '소수가 이긴다' else '올인 베팅' end),
+             type, q, opts, answer, note, false, case when media <> '' then 25 else 15 end, host, '', true, media
+      from hq_bank where id = (p_arg->>'id')::int;
+    update hq_questions set idx = idx - 999 where idx >= 1000;
+    update hq_images set idx = idx - 999 where idx >= 1000;
+    update hq_audio set idx = idx - 999 where idx >= 1000;
+    update hq_bank set used = used + 1 where id = (p_arg->>'id')::int;
+
   elsif p_action = 'compose' then
     -- 랜덤 세트 만들기. 순서: 은행 카테고리(추억→요즘 말→예능→상식) → 고정 문항(원래 순서) → 베팅 1문제.
     -- p_arg: {"counts": {"추억": 3, ...}, "min_diff": 2, "bet": true}
