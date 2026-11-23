@@ -126,6 +126,10 @@ alter table hq_bank add column if not exists media text not null default '';
 alter table hq_bank drop constraint if exists hq_bank_q_key;
 create unique index if not exists hq_bank_q_media on hq_bank (q, media);
 
+-- 노래 음원 조각(진행자가 자기 폰에서 올린 20초 클립, WAV data URL). 진행자 PIN 으로만 꺼낼 수 있다.
+create table if not exists hq_audio (idx int primary key, data text not null);
+alter table hq_audio enable row level security;
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;
@@ -322,7 +326,7 @@ begin
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
         'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
-        'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal, 'music', q.media <> '',
+        'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal, 'music', q.media <> '' or exists (select 1 from hq_audio where idx = q.idx),
         'answer', case when revealed then q.answer end,
         'note', case when revealed then q.note end) end,
     'submitted', (select count(*) from hq_answers a where a.qi = s.qi and a.at <= now()),
@@ -496,6 +500,7 @@ begin
            coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false), coalesce(e->>'media', '')
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
+    delete from hq_audio where idx >= (select count(*) from hq_questions);
 
   elsif p_action = 'image' then                     -- 문항 이미지 올리기 / 지우기(data 없으면 삭제)
     if p_arg->>'data' is null then
@@ -508,6 +513,22 @@ begin
 
   elsif p_action = 'image_get' then                 -- 진행자 미리보기용: 아무 문제의 사진이나 꺼낸다(PIN 필요)
     return to_jsonb((select data from hq_images where idx = (p_arg->>'idx')::int));
+
+  elsif p_action = 'audio' then                     -- 노래 음원 조각 올리기/지우기. 올리면 그 문제는 고정(랜덤 다시 뽑아도 남게)
+    if p_arg->>'data' is null then
+      delete from hq_audio where idx = (p_arg->>'idx')::int;
+    else
+      if length(p_arg->>'data') > 3000000 then raise exception 'AUDIO_TOO_BIG'; end if;
+      insert into hq_audio (idx, data) values ((p_arg->>'idx')::int, p_arg->>'data')
+      on conflict (idx) do update set data = excluded.data;
+      update hq_questions set pinned = true where idx = (p_arg->>'idx')::int;
+    end if;
+
+  elsif p_action = 'audio_get' then
+    return to_jsonb((select data from hq_audio where idx = (p_arg->>'idx')::int));
+
+  elsif p_action = 'audio_list' then
+    return (select coalesce(jsonb_agg(idx order by idx), '[]') from hq_audio);
 
   elsif p_action = 'images_list' then
     return (select coalesce(jsonb_agg(idx order by idx), '[]') from hq_images);
@@ -588,6 +609,10 @@ begin
       select o.idx, i.data from _pick p join _ord o on o.ord = p.ord join hq_images i on i.idx = p.old_idx;
     delete from hq_images where true;
     insert into hq_images (idx, data) select idx, data from _img;
+    create temp table _aud on commit drop as
+      select o.idx, a.data from _pick p join _ord o on o.ord = p.ord join hq_audio a on a.idx = p.old_idx;
+    delete from hq_audio where true;
+    insert into hq_audio (idx, data) select idx, data from _aud;
     delete from hq_questions where true;
     insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
       select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media from _pick p join _ord o on o.ord = p.ord;

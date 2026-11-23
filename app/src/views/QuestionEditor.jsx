@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, Braces, ImagePlus, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Braces, ImagePlus, Music, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
 
 const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
 const NO_ANSWER = ['poll', 'survey', 'minority']
@@ -35,7 +35,7 @@ function problems(list) {
  * 진행자용 문항 편집기. 폰에서도 고칠 수 있게 칸 채우기 방식.
  * 저장은 대기 단계에서만 된다(게임 중 문항이 바뀌면 점수가 꼬이므로 서버가 막는다).
  */
-export default function QuestionEditor({ admin, phase, setMsg, images, onImage, onPreview, onSaved }) {
+export default function QuestionEditor({ admin, phase, setMsg, images, onImage, onPreview, onSaved, audios = [], onAudio }) {
   const [list, setList] = useState(null)
   const [dirty, setDirty] = useState(false)
   const [json, setJson] = useState(null)
@@ -110,6 +110,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
           {!dirty && <label className="qe-img"><ImagePlus size={16} /> {images.includes(i) ? '사진 바꾸기' : '사진 붙이기'}
             <input type="file" accept="image/*" hidden onChange={(ev) => { onImage(i, ev.target.files?.[0]); ev.target.value = '' }} /></label>}
           {!dirty && images.includes(i) && <button type="button" className="qe-img" onClick={() => onImage(i, null)}><Trash2 size={14} /> 사진 빼기</button>}
+          {!dirty && <AudioPick has={audios.includes(i)} onPick={(f, st) => onAudio(i, f, st)} onRemove={() => onAudio(i, null)} />}
           <button type="button" className="qe-img" onClick={() => onPreview(list.map(toServer), i)}><Smartphone size={14} /> 미리보기</button>
         </div>
       </fieldset>
@@ -139,4 +140,15 @@ function FocusPicker({ admin, idx, value, onPick }) {
       <i style={{ left: `${x * 100}%`, top: `${y * 100}%` }} />
     </div>
   </div>
+}
+
+// 노래 음원 붙이기: 내 폰의 음악 파일 + 시작 초(후렴이 나오는 지점) → 20초만 잘라 저장
+function AudioPick({ has, onPick, onRemove }) {
+  const [start, setStart] = useState(0)
+  return <span className="audio-pick">
+    <label className="qe-img"><Music size={14} /> {has ? '음원 바꾸기' : '음원 붙이기'}
+      <input type="file" accept="audio/*" hidden onChange={(ev) => { const f = ev.target.files?.[0]; if (f) onPick(f, Number(start) || 0); ev.target.value = '' }} /></label>
+    <label className="audio-start">시작 <input type="number" min="0" inputMode="numeric" value={start} onChange={(e) => setStart(e.target.value)} />초</label>
+    {has && <button type="button" className="qe-img" onClick={onRemove}><Trash2 size={14} /> 음원 빼기</button>}
+  </span>
 }

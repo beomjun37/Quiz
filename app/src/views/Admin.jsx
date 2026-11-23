@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
+import { makeClip } from '../lib/audioclip'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
 import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube } from '../lib/ui'
@@ -26,7 +27,22 @@ export default function Admin() {
   const refreshQuestions = () => admin('questions_get').then((r) => setQuestions(r)).catch(() => {})
   const [images, setImages] = useState([])
   const refreshImages = () => admin('images_list').then(setImages).catch(() => {})
-  useEffect(() => { if (ok) { refreshImages(); refreshQuestions() } }, [ok]) // eslint-disable-line
+  const [audios, setAudios] = useState([])
+  const refreshAudios = () => admin('audio_list').then(setAudios).catch(() => {})
+  // 노래 음원 붙이기: 내 폰의 음원 파일에서 start 초부터 20초만 잘라 올린다(진행자만 꺼낼 수 있음)
+  async function onAudio(idx, file, start) {
+    try {
+      if (!file) { await admin('audio', { idx }); setMsg(`${idx + 1}번 음원을 뺐어요`) }
+      else {
+        setMsg('음원 자르는 중… (몇 초 걸려요)')
+        const clip = await makeClip(file, start)
+        await admin('audio', { idx, data: clip.data })
+        setMsg(`${idx + 1}번에 음원 ${clip.seconds}초를 붙였어요`)
+      }
+      refreshAudios(); refreshQuestions()
+    } catch (e) { if (!String(e?.message).match(/[A-Z_]{4,}/)) setMsg('이 파일은 읽을 수 없어요. mp3·m4a 같은 음악 파일을 골라 주세요') }
+  }
+  useEffect(() => { if (ok) { refreshImages(); refreshQuestions(); refreshAudios() } }, [ok]) // eslint-disable-line
 
   // 문제 사진: 고른 사진을 긴 변 900px JPEG 로 줄여 DB 에 넣는다(별도 저장소 설정 불필요). file 이 없으면 삭제.
   async function onImage(idx, file) {
@@ -85,7 +101,7 @@ export default function Admin() {
       <header className="large-title"><small className="num">{view.phase === 'lobby' ? `참가 ${view.players}명` : `${Math.max(view.qi + 1, 0)} / ${view.total_q}번 · 참가 ${view.players}명`}</small><h1>{phaseKo}</h1></header>
       {['q', 'answer'].includes(view.phase) && view.question && <p className="live-q">{view.question.q}</p>}
       {view.phase === 'q' && view.question && <LiveTimer view={view} />}
-      <HostCard view={view} admin={admin} onPreview={(q, idx) => openPreview(questions, idx)} />
+      <HostCard view={view} admin={admin} audios={audios} onPreview={(q, idx) => openPreview(questions, idx)} />
       {msg && <div className="err">{msg}</div>}
       <div className="live-actions">
         {next && view.phase !== 'draw' && <button className="go big" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
@@ -135,7 +151,7 @@ export default function Admin() {
         <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages(); refreshQuestions() }} />
       </details>
       <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage}
-        onPreview={openPreview} onSaved={refreshQuestions} />
+        onPreview={openPreview} onSaved={refreshQuestions} audios={audios} onAudio={onAudio} />
     </main>}
 
     {tab === 'settings' && <main className="tab-page">
@@ -201,7 +217,7 @@ function LiveTimer({ view }) {
 }
 
 // 진행자 카드: 지금 단계에서 읽을 멘트 + 정답(참가자보다 먼저) + 다음 문제 미리보기
-function HostCard({ view, admin, onPreview }) {
+function HostCard({ view, admin, audios = [], onPreview }) {
   const [cur, setCur] = useState(null)
   useEffect(() => { admin('current').then(setCur).catch(() => {}) }, [view.phase, view.qi]) // eslint-disable-line
   const q = view.question
@@ -243,8 +259,9 @@ function HostCard({ view, admin, onPreview }) {
     {view.phase === 'answer' && view.reactions && <div className="host-ans">반응 {['clap', 'lol', 'beer', 'fire'].map((k) => `${REACT_EMOJI[k]} ${view.reactions[k] ?? 0}`).join('  ')}</div>}
     {nx && nx.reveal && !nx.has_image && ['lobby', 'answer', 'bet'].includes(view.phase) &&
       <div className="warn"><AlertTriangle size={16} />다음 {nx.idx + 1}번은 사진 문제인데 사진이 없어요. 문항 편집에서 붙이거나 건너뛰세요.</div>}
-    {q && ['q', 'answer'].includes(view.phase) && cur?.now?.media && parseYouTube(cur.now.media) && <SongPlayer media={cur.now.media} key={q.idx} />}
-    {q && ['q', 'answer'].includes(view.phase) && cur?.now?.media && !parseYouTube(cur.now.media) && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
+    {q && ['q', 'answer'].includes(view.phase) && audios.includes(q.idx) && <ClipPlayer admin={admin} idx={q.idx} key={`c${q.idx}`} />}
+    {q && ['q', 'answer'].includes(view.phase) && !audios.includes(q.idx) && cur?.now?.media && parseYouTube(cur.now.media) && <SongPlayer media={cur.now.media} key={q.idx} />}
+    {q && ['q', 'answer'].includes(view.phase) && !audios.includes(q.idx) && cur?.now?.media && !parseYouTube(cur.now.media) && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
       <Music size={22} /><span>노래 틀기: {cur.now.media}<small>유튜브가 열려요 · 앞부분 10초만 틀고 멈추세요</small></span></a>}
     {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
       정답 <b>{label(q, cur.now.answer)}</b>{cur.now.note && <span> · {cur.now.note}</span>}</div>}
@@ -252,7 +269,7 @@ function HostCard({ view, admin, onPreview }) {
       <small>다음 {nx.idx + 1}번{nx.is_bet ? ' (베팅 문제)' : ''}</small>
       <p>{nx.q}</p>
       <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
-      {nx.media && <span style={{ display: 'block', marginTop: 4 }}><Music size={14} /> {parseYouTube(nx.media) ? '노래 퀴즈: 문제를 열면 여기서 바로 재생돼요' : `노래 퀴즈: 미리 "${nx.media}" 검색해 두세요 (문항 편집에 유튜브 링크를 넣으면 바로 재생)`}</span>}
+      {(nx.media || audios.includes(nx.idx)) && <span style={{ display: 'block', marginTop: 4 }}><Music size={14} /> 노래 퀴즈 · 문제를 열면 여기서 바로 재생돼요{audios.includes(nx.idx) ? ' (음원 파일)' : ''}</span>}
       <button className="ghost" style={{ margin: '8px 0 0', display: 'block' }} onClick={() => onPreview(nx, nx.idx)}><Smartphone size={15} style={{ verticalAlign: -2 }} /> 참가자 화면 미리보기</button>
     </div>}
   </div>
@@ -490,5 +507,22 @@ function SongPlayer({ media }) {
       <div className="seg song-len">{[10, 15, 30].map((n) => <button key={n} type="button" className={len === n ? 'on' : ''} onClick={() => setLen(n)}>{n}초</button>)}</div>
     </div>
     <a className="song-alt" href={`https://www.youtube.com/watch?v=${yt.id}${yt.start ? `&t=${yt.start}s` : ''}`} target="_blank" rel="noreferrer">영상이 안 나오면 유튜브 앱에서 열기</a>
+  </div>
+}
+
+// 올려 둔 음원 조각 재생(진행자 폰에서만). 유튜브 없이 바로, 오프라인 지연 없이.
+function ClipPlayer({ admin, idx }) {
+  const [src, setSrc] = useState(null)
+  const [playing, setPlaying] = useState(false)
+  const el = useRef(null)
+  useEffect(() => { admin('audio_get', { idx }).then(setSrc).catch(() => {}) }, [idx]) // eslint-disable-line
+  const toggle = () => {
+    const a = el.current; if (!a) return
+    if (playing) { a.pause(); a.currentTime = 0; setPlaying(false) } else { a.currentTime = 0; a.play().then(() => setPlaying(true)).catch(() => {}) }
+  }
+  return <div className="song">
+    {src && <audio ref={el} src={src} preload="auto" onEnded={() => setPlaying(false)} />}
+    <button className="music-btn" style={{ border: 0, width: '100%', textAlign: 'left' }} disabled={!src} onClick={toggle}>
+      <Music size={22} /><span>{!src ? '음원 불러오는 중…' : playing ? '정지' : '노래 바로 재생'}<small>올려 둔 음원 · 약 20초 · 진행자 폰에서만 나와요</small></span></button>
   </div>
 }
