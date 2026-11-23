@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, Ro
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
+import YTPlayer, { withStart } from '../lib/ytplayer'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
 import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube } from '../lib/ui'
@@ -102,6 +103,7 @@ export default function Admin() {
       {['q', 'answer'].includes(view.phase) && view.question && <p className="live-q">{view.question.q}</p>}
       {view.phase === 'q' && view.question && <LiveTimer view={view} />}
       <HostCard view={view} admin={admin} audios={audios} onPreview={(q, idx) => openPreview(questions, idx)} />
+      <LiveSong view={view} questions={questions} audios={audios} admin={admin} onSaved={refreshQuestions} />
       {msg && <div className="err">{msg}</div>}
       <div className="live-actions">
         {next && view.phase !== 'draw' && <button className="go big" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
@@ -260,7 +262,7 @@ function HostCard({ view, admin, audios = [], onPreview }) {
     {nx && nx.reveal && !nx.has_image && ['lobby', 'answer', 'bet'].includes(view.phase) &&
       <div className="warn"><AlertTriangle size={16} />다음 {nx.idx + 1}번은 사진 문제인데 사진이 없어요. 문항 편집에서 붙이거나 건너뛰세요.</div>}
     {q && ['q', 'answer'].includes(view.phase) && audios.includes(q.idx) && <ClipPlayer admin={admin} idx={q.idx} key={`c${q.idx}`} />}
-    {q && ['q', 'answer'].includes(view.phase) && !audios.includes(q.idx) && cur?.now?.media && parseYouTube(cur.now.media) && <SongPlayer media={cur.now.media} key={q.idx} />}
+
     {q && ['q', 'answer'].includes(view.phase) && !audios.includes(q.idx) && cur?.now?.media && !parseYouTube(cur.now.media) && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
       <Music size={22} /><span>노래 틀기: {cur.now.media}<small>유튜브가 열려요 · 앞부분 10초만 틀고 멈추세요</small></span></a>}
     {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
@@ -466,7 +468,7 @@ function PreviewModal({ list, start, admin, images, onClose }) {
           <div className="bar"><i style={{ width: `${(left / limit) * 100}%` }} /></div><b className="num">{Math.ceil(left)}</b></div>}
         <h1 className="title">{q.q}</h1>
         {q.media && <div className="music"><span className="eq"><i /><i /><i /><i /></span>노래 퀴즈 · 진행자 폰에서 노래가 나와요</div>}
-        {q.media && parseYouTube(q.media) && <SongPlayer media={q.media} key={`p${idx}`} />}
+        {q.media && parseYouTube(q.media) && <YTPlayer media={q.media} key={`p${idx}`} onSaveStart={(sec) => admin('set_media', { idx, media: withStart(q.media, sec) })} />}
         {q.type === 'survey' && <p className="rule-hint">다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'minority' && <p className="rule-hint">소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'poll' && <p className="lead">정답 없는 투표예요. 점수엔 영향 없어요.</p>}
@@ -524,5 +526,20 @@ function ClipPlayer({ admin, idx }) {
     {src && <audio ref={el} src={src} preload="auto" onEnded={() => setPlaying(false)} />}
     <button className="music-btn" style={{ border: 0, width: '100%', textAlign: 'left' }} disabled={!src} onClick={toggle}>
       <Music size={22} /><span>{!src ? '음원 불러오는 중…' : playing ? '정지' : '노래 바로 재생'}<small>올려 둔 음원 · 약 20초 · 진행자 폰에서만 나와요</small></span></button>
+  </div>
+}
+
+// 진행 탭의 노래 플레이어(유튜브). 다음 문제가 노래면 정답 공개 화면에서 미리 띄워 광고를 넘겨 두고,
+// 문제를 열면 같은 플레이어가 그대로 이어진다(key 가 문제 번호라서 다시 만들어지지 않음).
+function LiveSong({ view, questions, audios, admin, onSaved }) {
+  const isSong = (i) => i != null && questions[i] && parseYouTube(questions[i].media) && !audios.includes(i)
+  const cur = view.phase === 'q' ? view.qi : null
+  const nxt = ['lobby', 'answer', 'bet'].includes(view.phase) ? view.qi + 1 : null
+  const idx = isSong(cur) ? cur : isSong(nxt) ? nxt : null
+  if (idx == null) return null
+  const media = questions[idx].media
+  return <div className={idx === nxt ? 'song-next' : ''}>
+    {idx === nxt && <p className="lead" style={{ fontSize: 15, margin: '0 0 6px' }}>다음 {idx + 1}번은 노래 문제예요. <b>광고 먼저 넘기기</b>를 눌러 두면 문제를 열 때 바로 노래가 나와요.</p>}
+    <YTPlayer key={`yt${idx}`} media={media} onSaveStart={async (sec) => { await admin('set_media', { idx, media: withStart(media, sec) }); onSaved() }} />
   </div>
 }

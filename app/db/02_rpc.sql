@@ -361,6 +361,9 @@ begin
       update hq_questions set pinned = true where idx = (p_arg->>'idx')::int;
     end if;
 
+  elsif p_action = 'set_media' then                 -- 노래 시작 지점 저장 등: 한 문제의 노래 링크만 바꾼다(게임 중에도 가능)
+    update hq_questions set media = coalesce(p_arg->>'media', '') where idx = (p_arg->>'idx')::int;
+
   elsif p_action = 'audio_get' then
     return to_jsonb((select data from hq_audio where idx = (p_arg->>'idx')::int));
 
