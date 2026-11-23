@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, randomNick, trap, REACT_EMOJI, revealOf } from '../lib/ui'
+import { errText, fmt, options, randomNick, trap, REACT_EMOJI, revealOf, isCorrect } from '../lib/ui'
 import { serverNow } from '../lib/clock'
 import { fx, unlockAudio } from '../lib/fx'
 
@@ -269,7 +269,7 @@ function Dist({ view, me }) {
   const q = view.question, total = Math.max(1, (view.dist ?? []).reduce((a, b) => a + b, 0))
   return <div className="dist">
     {options(q).map(([label, k, bg], i) => {
-      const n = view.dist?.[i] ?? 0, win = q.answer === i
+      const n = view.dist?.[i] ?? 0, win = isCorrect(q, i)
       return <div key={i} className={`dist-row ${win ? 'win' : q.answer != null ? 'dim' : ''}`}>
         <div className="dist-label"><span>{win && <Check size={18} className="win-check" />}{q.type !== 'ox' && <b className="num">{k}</b>} {label}{win && <strong className="win-tag">정답</strong>}{me.answer === i && <em>내 선택</em>}</span><b className="num">{n}명</b></div>
         <div className="dist-bar"><i style={{ width: `${(n / total) * 100}%`, background: bg }} /></div>
@@ -292,7 +292,7 @@ function Top5({ view, title = '지금 TOP 5' }) {
 function Result({ view, me }) {
   const q = view.question
   const poll = q.type === 'poll'
-  const none = me.answer == null, ok = !none && me.answer === q.answer
+  const none = me.answer == null, ok = !none && isCorrect(q, me.answer)
   const played = useRef(null)
   useEffect(() => {
     if (poll || none || played.current === q.idx) return
@@ -313,7 +313,7 @@ function Result({ view, me }) {
       ? <div className="verdict none"><h2>투표 결과</h2></div>
       : <div className={`verdict ${none ? 'none' : ok ? 'ok' : 'no'}`}>
           <h2>{none ? '시간 초과' : ok ? '정답!' : '아쉽다'}</h2>
-          {q.answer != null && <div className="answer-pill"><Check size={20} />정답 <b>{options(q)[q.answer][0]}</b></div>}
+          {q.answer != null && <div className="answer-pill"><Check size={20} />정답 <b>{[q.answer, ...(q.alt ?? [])].map((i) => options(q)[i][0]).join(' · ')}</b></div>}
           {!ok && !none && q.answer != null && <p className="verdict-sub">내 답: {options(q)[me.answer][0]}</p>}
           <div className="gain num">{me.gain > 0 ? '+' : ''}{fmt(me.gain)}</div>
           {chips.length > 0 && <div className="chips">{chips.map(([icon, t], i) => <span key={i}>{icon}{t}</span>)}</div>}

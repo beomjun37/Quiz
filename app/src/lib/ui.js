@@ -21,6 +21,8 @@ export const ERR = {
   NOT_LOBBY: '게임이 시작된 뒤에는 닉네임을 바꿀 수 없어요',
   BAD_PIN: 'PIN이 틀렸어요',
   PIN_LOCKED: 'PIN을 여러 번 틀려서 5분 동안 잠겼어요',
+  NO_SPARE: '바꿔 넣을 문제가 은행에 없어요. 건너뛰기를 써 주세요',
+  NOT_REVEALED: '정답을 공개한 뒤에 쓸 수 있어요',
   NO_CANDIDATE: '더 뽑을 사람이 없어요 (1~3등과 이미 뽑힌 사람은 빠져요)',
   NOT_DRAW: '추첨은 최종 순위 다음에 할 수 있어요',
   ONLY_IN_LOBBY: '문항은 시작 전(대기 단계)에만 바꿀 수 있어요',
@@ -73,3 +75,6 @@ export function parseYouTube(media) {
   const t = plain ?? (ms && (ms[1] || ms[2] || ms[3]) ? (Number(ms[1] || 0) * 3600 + Number(ms[2] || 0) * 60 + Number(ms[3] || 0)) : 0)
   return { id, start: Number(t) || 0 }
 }
+
+// 정답 + 진행자가 추가로 인정한 보기
+export const isCorrect = (q, i) => q?.answer != null && (i === q.answer || (q.alt ?? []).includes(i))

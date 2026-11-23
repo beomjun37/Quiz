@@ -148,6 +148,11 @@ alter table hq_questions add constraint hq_questions_type_check check (type in (
 create table if not exists hq_images (idx int primary key, data text not null);
 alter table hq_images enable row level security;
 
+-- 정답 추가 인정(복수 정답): 공개 후 진행자가 '이것도 정답'으로 인정한 보기들
+alter table hq_questions add column if not exists alt jsonb not null default '[]';
+-- 현장에서 '문제 교체'된 은행 문제: 다음 랜덤 뽑기에서 빼고 점검 화면에서 모아 본다
+alter table hq_bank add column if not exists flagged boolean not null default false;
+
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
