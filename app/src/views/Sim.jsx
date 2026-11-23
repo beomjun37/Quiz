@@ -4,6 +4,7 @@ import Phone from './Phone'
 import { rpc } from '../lib/supabase'
 import { serverNow } from '../lib/clock'
 import { errText } from '../lib/ui'
+import { ask, ConfirmHost } from '../lib/confirm'
 
 /**
  * #/sim — 진행자 연습 모드. 지금 문제 구성 그대로, 진행자가 참가자가 되어 처음부터 마무리(경품 추첨)까지 풀어 본다.
@@ -25,7 +26,7 @@ export default function Sim() {
       try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ }
       const v = await rpc('hq_view', {})
       if (v.phase !== 'lobby') throw new Error('게임이 진행 중이에요. 진행자 화면에서 "새 게임"을 누른 뒤 다시 시작해 주세요')
-      if (v.players > 0 && !confirm(`이미 ${v.players}명이 입장해 있어요. 연습이 끝나면 '새 게임'으로 모두 정리돼요. 계속할까요?`)) return
+      if (v.players > 0 && !(await ask(`이미 ${v.players}명이 입장해 있어요. 연습이 끝나면 '새 게임'으로 모두 정리돼요. 계속할까요?`, { ok: '계속' }))) return
       const me = await rpc('hq_join', { p_name: '진행자(연습)', p_id: crypto.randomUUID() }).catch(async () => rpc('hq_join', { p_name: `진행자 연습${Math.floor(Math.random() * 90 + 10)}`, p_id: crypto.randomUUID() }))
       try { localStorage.setItem(KEY, me.id) } catch { /* noop */ }
       await admin('bots', { n: 30 })
@@ -34,6 +35,7 @@ export default function Sim() {
   }
 
   if (!started) return <div className="phone">
+    <ConfirmHost />
     <h1 className="title">혼자 끝까지 풀어 보기</h1>
     <p className="lead">지금 문제 구성 그대로, 내가 참가자가 되어 첫 문제부터 시상·행운상 추첨·마무리 화면까지 풀어 봐요. 가상 동료 29명이 함께 풀고, 진행은 자동으로 넘어가요.</p>
     <div className="panel" style={{ fontSize: 15, display: 'grid', gap: 6 }}>
@@ -46,7 +48,7 @@ export default function Sim() {
     <button className="primary" disabled={busy || !pin} onClick={start}><Play size={22} />{busy ? '준비 중…' : '연습 시작'}</button>
   </div>
 
-  return <><SimDriver admin={admin} /><Phone /></>
+  return <><ConfirmHost /><SimDriver admin={admin} /><Phone /></>
 }
 
 // 자동 진행: 1초마다 상태를 보고 다음 단계로 넘긴다
@@ -116,7 +118,7 @@ function SimDriver({ admin }) {
     <button onClick={() => jump(1)} disabled={jumping} aria-label="다음 문제"><ChevronRight size={18} /></button>
     <button onClick={() => setPaused((p) => !p)} aria-label={paused ? '계속' : '일시정지'}>{paused ? <Play size={16} /> : <Pause size={16} />}</button>
     <button onClick={async () => {
-      if (!confirm('연습을 끝낼까요? 가상 동료와 연습 기록을 지우고 대기 상태로 돌아가요.')) return
+      if (!(await ask('연습을 끝낼까요?\n가상 동료와 연습 기록을 지우고 대기 상태로 돌아가요.', { ok: '끝내기' }))) return
       try { await admin('reset') } catch { /* noop */ }
       try { localStorage.removeItem(KEY) } catch { /* noop */ }
       location.hash = '#/admin'; location.reload()

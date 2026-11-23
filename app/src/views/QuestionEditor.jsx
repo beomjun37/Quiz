@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, Braces, ImagePlus, Music, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
+import { ask } from '../lib/confirm'
+import { ArrowDown, ArrowUp, Braces, ChevronLeft, ChevronRight, ImagePlus, Music, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
 
 const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
 const NO_ANSWER = ['poll', 'survey', 'minority']
@@ -40,20 +41,21 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
   const [dirty, setDirty] = useState(false)
   const [json, setJson] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(null)   // 편집 중인 문제 번호(null 이면 목록)
 
   const load = () => admin('questions_get').then((r) => { setList(r.map(fromServer)); setDirty(false) }).catch(() => {})
   useEffect(() => { load() }, []) // eslint-disable-line
 
   const edit = (i, patch) => { setList((l) => l.map((e, k) => (k === i ? { ...e, ...patch } : e))); setDirty(true) }
-  const move = (i, d) => { setList((l) => { const c = [...l]; [c[i], c[i + d]] = [c[i + d], c[i]]; return c }); setDirty(true) }
-  const remove = (i) => { if (confirm(`${i + 1}번 문제를 지울까요?`)) { setList((l) => l.filter((_, k) => k !== i)); setDirty(true) } }
+  const move = (i, d) => { setList((l) => { const c = [...l]; [c[i], c[i + d]] = [c[i + d], c[i]]; return c }); setDirty(true); setOpen((o) => (o === i ? i + d : o)) }
+  const remove = async (i) => { if (await ask(`${i + 1}번 문제를 지울까요?`, { ok: '지우기', danger: true })) { setOpen(null); setList((l) => l.filter((_, k) => k !== i)); setDirty(true) } }
 
   async function save() {
     const bad = problems(list)
     if (bad.length) return setMsg(bad.slice(0, 3).join(' · '))
     // 사진 문제의 '(이름 1)' 같은 자리 표시는 막지 않고 한 번 확인만 한다(나중에 채워도 되게)
     const todo = list.map((e, i) => (e.opts.some((o) => /^\(이름 \d\)$/.test(o.trim())) ? i + 1 : 0)).filter(Boolean)
-    if (todo.length && !confirm(`${todo.join(', ')}번 문제의 보기가 아직 '(이름 1)' 같은 자리 표시예요.\n그대로 저장할까요? (게임 전에 채우거나 지워 주세요)`)) return
+    if (todo.length && !(await ask(`${todo.join(', ')}번 문제의 보기가 아직 '(이름 1)' 같은 자리 표시예요.\n그대로 저장할까요? (게임 전에 채우거나 지워 주세요)`, { ok: '그대로 저장' }))) return
     setBusy(true)
     try { await admin('questions', { list: list.map(toServer) }); setMsg(`${list.length}개 문항을 저장했어요`); setDirty(false); onSaved?.() }
     catch { /* admin() 이 메시지를 띄운다 */ } finally { setBusy(false) }
@@ -70,7 +72,23 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
 
   return <div className="qe">
     {locked && <p className="err">게임 중에는 문항을 바꿀 수 없어요. 새 게임이나 한 판 더를 누르면 다시 편집할 수 있어요.</p>}
-    {list.map((e, i) => (
+    {open == null && <div className="group qe-list">
+      {list.map((e, i) => <button key={i} type="button" className="qe-row" onClick={() => setOpen(i)}>
+        <b className="num">{i + 1}</b>
+        <span className="qe-row-main"><small>{e.round || '라운드 없음'}{e.is_bet ? ' · 베팅' : ''}</small>{e.q || '(문제를 적어 주세요)'}</span>
+        <span className="qe-tags">{images.includes(i) && <i>사진</i>}{(e.media || audios.includes(i)) && <i>노래</i>}{e.pinned && <i className="pin">고정</i>}</span>
+        <ChevronRight size={18} />
+      </button>)}
+    </div>}
+    {open != null && list[open] && <div className="qe-detail-bar">
+      <button type="button" className="ghost" onClick={() => setOpen(null)}><ChevronLeft size={16} style={{ verticalAlign: -3 }} /> 목록</button>
+      <span className="num">{open + 1} / {list.length}</span>
+      <span>
+        <button type="button" className="ghost" disabled={open === 0} onClick={() => setOpen(open - 1)} aria-label="이전 문제"><ChevronLeft size={16} /></button>
+        <button type="button" className="ghost" disabled={open >= list.length - 1} onClick={() => setOpen(open + 1)} aria-label="다음 문제"><ChevronRight size={16} /></button>
+      </span>
+    </div>}
+    {list.map((e, i) => i === open && (
       <fieldset key={i} className="qe-card" disabled={locked}>
         {e.reveal && !images.includes(i) && !dirty && <div className="warn">사진 연출 문제인데 사진이 아직 없어요. 아래 '사진 붙이기'를 눌러 주세요.</div>}
         <div className="qe-head">
@@ -116,7 +134,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
       </fieldset>
     ))}
     <div className="qe-bar">
-      <button className="ghost" disabled={locked} onClick={() => { setList((l) => [...l, blank()]); setDirty(true) }}><Plus size={15} style={{ verticalAlign: -2 }} /> 문제 추가</button>
+      <button className="ghost" disabled={locked} onClick={() => { setList((l) => [...l, blank()]); setDirty(true); setOpen(list.length) }}><Plus size={15} style={{ verticalAlign: -2 }} /> 문제 추가</button>
       <button className="go" disabled={locked || busy || !dirty} onClick={save}><Save size={18} />{busy ? '저장 중…' : dirty ? '저장하기' : '저장됨'}</button>
       <button className="ghost" onClick={() => setJson(JSON.stringify(list.map(toServer), null, 1))}><Braces size={15} style={{ verticalAlign: -2 }} /> JSON</button>
     </div>
