@@ -371,6 +371,8 @@ svg { flex-shrink: 0; }
 .song-alt { color: var(--mute); font-size: 14px; text-align: center; }
 .audio-pick { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .audio-start { display: inline-flex; gap: 4px; align-items: center; font-size: 14px; } .host-app .audio-start input { width: 64px !important; padding: 6px 8px !important; margin: 0 !important; }
+.update-banner { position: fixed; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); z-index: 50; display: inline-flex; gap: 8px; align-items: center;
+  background: var(--soju); color: var(--soju-ink); font-weight: 800; font-size: 16px; padding: 12px 18px; border-radius: 999px; box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.7); white-space: nowrap; }
 .howto { display: grid; gap: 10px; }
 .howto h3 { margin: 0; font-size: 17px; color: var(--mute); }
 .howto ol { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 18px; }
