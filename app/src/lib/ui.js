@@ -19,6 +19,9 @@ export const ERR = {
   BAD_NEW_PIN: 'PIN은 4~12자리로 정해 주세요',
   NOT_LOBBY: '게임이 시작된 뒤에는 닉네임을 바꿀 수 없어요',
   BAD_PIN: 'PIN이 틀렸어요',
+  PIN_LOCKED: 'PIN을 여러 번 틀려서 5분 동안 잠겼어요',
+  NO_CANDIDATE: '더 뽑을 사람이 없어요 (1~3등과 이미 뽑힌 사람은 빠져요)',
+  NOT_DRAW: '추첨은 최종 순위 다음에 할 수 있어요',
   ONLY_IN_LOBBY: '문항은 시작 전(대기 단계)에만 바꿀 수 있어요',
 }
 export const errText = (m) => ERR[Object.keys(ERR).find((k) => m?.includes(k))] ?? (/fetch|network|load failed|timeout/i.test(m ?? '') ? '연결이 잠깐 끊겼어요. 다시 눌러 주세요' : '처리 중 문제가 생겼어요')
