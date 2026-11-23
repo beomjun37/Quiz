@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  Users, X as CloseIcon,
   AlertCircle, ArrowDown, ArrowUp, Beer, Check, Clock, Crown, Dices, Flame, Gift, LogIn, Medal,
   MessageCircle, Minus, Sparkles, Split, Trophy, UserRound, Vote, Zap,
 } from 'lucide-react'
@@ -30,6 +31,7 @@ export default function Phone() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null)
   const [kicked, setKicked] = useState(false)
+  const [roster, setRoster] = useState(false)
 
   // 진행자가 새 게임을 시작해 내 기록이 사라졌으면 입장부터 다시
   useEffect(() => { if (view && pid && view._for === pid && !view.me) { store(null); setPid(null); setKicked(true) } }, [view, pid])
@@ -72,8 +74,9 @@ export default function Phone() {
       <div className="statusbar">
         <div className="me-chip"><UserRound size={20} color="var(--mute)" /><span>{me.name}</span>
           {me.streak >= 2 && <span className="streak"><Flame size={15} />{me.streak}</span>}</div>
-        <div className="score-chip num">{fmt(me.score)}<small>점 · {me.rank}위</small></div>
+        <button className="score-chip num" onClick={() => setRoster(true)} aria-label="참가자 명단과 순위 보기">{fmt(me.score)}<small>점 · {me.rank}위 · <Users size={13} style={{ verticalAlign: -2 }} />{view.players}</small></button>
       </div>
+      {roster && <RosterSheet view={view} onClose={() => setRoster(false)} />}
       {body}
       {msg && <div className="err" role="alert"><AlertCircle size={20} />{msg}</div>}
     </div>
@@ -137,6 +140,10 @@ function Lobby({ view, me, act, busy, leave }) {
       <div className="big-icon"><Beer size={38} /></div>
       <p className="title">입장 완료!</p>
       <p className="lead"><b className="num" style={{ color: 'var(--fg)' }}>{view.players}명</b>이 함께하고 있어요. 곧 첫 문제가 열려요.</p>
+    </div>
+    <div className="panel who">
+      <h3><Users size={18} />지금 들어온 사람 <b className="num">{view.players}명</b></h3>
+      <div className="who-list">{(view.roster ?? []).map((p) => <span key={p.name} className={p.is_me ? 'me' : ''}>{p.name}</span>)}</div>
     </div>
     <div className="panel rules">
       <h3>점수 따는 법</h3>
@@ -429,3 +436,20 @@ function End({ view, me }) {
   </>
 }
 
+
+// 참가자 명단 + 순위(누구나 볼 수 있음). 내 자리를 강조한다.
+function RosterSheet({ view, onClose }) {
+  const list = view.roster ?? []
+  const started = list.some((p) => p.score > 0)
+  return <div className="sheet-bg" onClick={onClose}>
+    <div className="sheet" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="참가자 명단">
+      <div className="sheet-head"><b>{started ? '지금 순위' : '참가자 명단'} · <span className="num">{list.length}명</span></b>
+        <button onClick={onClose} aria-label="닫기"><CloseIcon size={20} /></button></div>
+      <div className="sheet-list">
+        {list.map((p, i) => <div key={p.name} className={`roster-row ${p.is_me ? 'me' : ''}`}>
+          <b className="num">{started ? p.rank : i + 1}</b><span>{p.name}{p.is_me && <em>나</em>}</span>{started && <small className="num">{fmt(p.score)}</small>}
+        </div>)}
+      </div>
+    </div>
+  </div>
+}

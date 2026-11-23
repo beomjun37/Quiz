@@ -333,6 +333,22 @@ svg { flex-shrink: 0; }
 .verdict-sub { margin: 6px 0 0; font-size: 18px; font-weight: 700; opacity: 0.95; }
 .danger-row, .danger-row > svg:first-child { color: #ff8a8e !important; }
 .mb-go { display: inline-flex; align-items: center; gap: 2px; color: var(--beer); font-weight: 800; font-size: 15px; }
+.score-chip { background: none; color: var(--beer); cursor: pointer; }
+.who h3 { margin: 0 0 10px; font-size: 16px; color: var(--mute); display: flex; gap: 6px; align-items: center; } .who h3 b { color: var(--fg); }
+.who-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 30dvh; overflow: auto; }
+.who-list span { background: var(--ink-3); border-radius: 999px; padding: 5px 11px; font-size: 15px; }
+.who-list span.me { background: var(--beer); color: var(--beer-ink); font-weight: 800; }
+.sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.6); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { width: min(100%, 460px); max-height: 80dvh; background: var(--ink-2); border-radius: 20px 20px 0 0; display: flex; flex-direction: column; animation: rise 0.3s var(--ease); padding-bottom: env(safe-area-inset-bottom); }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 17px; }
+.sheet-head button { width: 36px; height: 36px; border-radius: 50%; background: var(--ink-3); display: grid; place-items: center; }
+.sheet-list { overflow: auto; padding: 4px 16px 16px; }
+.roster-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 17px; }
+.roster-row b { color: var(--mute); } .roster-row small { color: var(--mute); font-size: 16px; }
+.roster-row.me { color: var(--beer); font-weight: 800; } .roster-row.me b, .roster-row.me small { color: var(--beer); }
+.roster-row em, .mini em { font-style: normal; font-size: 12px; margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--beer); color: var(--beer-ink); font-weight: 800; }
+.mini em.bot { background: var(--ink-3); color: var(--mute); }
+.rank-fold summary svg { color: var(--beer); }
 .tab-page { padding: 8px 16px 24px; display: grid; gap: 14px; }
 .large-title { padding: 14px 4px 2px; }
 .large-title h1 { margin: 0; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; }
