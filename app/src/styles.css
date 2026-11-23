@@ -488,3 +488,4 @@ svg { flex-shrink: 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 .confirm-layer { z-index: 40; }
 .preview-layer { z-index: 35; }
+.qe-tags i.start { background: rgb(74 222 128 / 0.16); color: #4ade80; } .qe-tags i.nostart { color: var(--beer); }

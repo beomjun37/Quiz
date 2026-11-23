@@ -14,7 +14,7 @@ function loadYT() {
   return apiPromise
 }
 
-const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
+export const mmss = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
 
 /**
  * 진행자 폰의 노래 플레이어.
@@ -80,8 +80,8 @@ export default function YTPlayer({ media, len = 15, onSaveStart, compact = false
     <div className="song-frame"><div ref={box} /></div>
     <div className="song-row">
       {state === 'playing'
-        ? <button className="music-btn" onClick={stop}><Square size={20} /><span>정지<small className="num">{fmt(now)} · {fmt(start)}부터 {len}초</small></span></button>
-        : <button className="music-btn" onClick={play}><Music size={22} /><span>노래 바로 재생<small className="num">{fmt(start)}부터 {len}초</small></span></button>}
+        ? <button className="music-btn" onClick={stop}><Square size={20} /><span>정지<small className="num">{mmss(now)} · {mmss(start)}부터 {len}초</small></span></button>
+        : <button className="music-btn" onClick={play}><Music size={22} /><span>노래 바로 재생<small className="num">{mmss(start)}부터 {len}초</small></span></button>}
       {state === 'idle' && !compact && <button className="ghost prep" onClick={prepare}><Zap size={16} />광고 먼저 넘기기</button>}
       {state === 'preparing' && <span className="prep-note">준비 중… 광고가 나오면 '건너뛰기'를 눌러 주세요</span>}
       {state === 'ready' && <span className="prep-note ok">준비 완료 · 바로 재생돼요</span>}
@@ -90,8 +90,8 @@ export default function YTPlayer({ media, len = 15, onSaveStart, compact = false
       <button className="ghost" onClick={() => nudge(-5)} aria-label="5초 뒤로"><Rewind size={16} />5초</button>
       <button className="ghost" onClick={() => nudge(10)} aria-label="10초 앞으로"><FastForward size={16} />10초</button>
       {onSaveStart && <>
-        <button className="ghost" onClick={setHere}>지금 지점({fmt(now)})을 시작으로</button>
-        {start !== (yt.start ?? 0) && !saved && <button className="ghost save" onClick={async () => { await onSaveStart(start); setSaved(true) }}><Save size={15} />{fmt(start)}부터로 저장</button>}
+        <button className="ghost" onClick={setHere}>지금 지점({mmss(now)})을 시작으로</button>
+        {start !== (yt.start ?? 0) && !saved && <button className="ghost save" onClick={async () => { await onSaveStart(start); setSaved(true) }}><Save size={15} />{mmss(start)}부터로 저장</button>}
         {saved && <span className="prep-note ok">저장했어요</span>}
       </>}
     </div>

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ask } from '../lib/confirm'
+import { parseYouTube } from '../lib/ui'
+import { mmss } from '../lib/ytplayer'
 import { ArrowDown, ArrowUp, Braces, ChevronLeft, ChevronRight, ImagePlus, Music, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
 
 const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
@@ -76,7 +78,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
       {list.map((e, i) => <button key={i} type="button" className="qe-row" onClick={() => setOpen(i)}>
         <b className="num">{i + 1}</b>
         <span className="qe-row-main"><small>{e.round || '라운드 없음'}{e.is_bet ? ' · 베팅' : ''}</small>{e.q || '(문제를 적어 주세요)'}</span>
-        <span className="qe-tags">{images.includes(i) && <i>사진</i>}{(e.media || audios.includes(i)) && <i>노래</i>}{e.pinned && <i className="pin">고정</i>}</span>
+        <span className="qe-tags">{images.includes(i) && <i>사진</i>}{audios.includes(i) ? <i>노래 · 클립</i> : e.media && <i className={parseYouTube(e.media)?.start ? 'start' : 'nostart'}>{parseYouTube(e.media) ? (parseYouTube(e.media).start ? `노래 ${mmss(parseYouTube(e.media).start)}부터` : '노래 · 처음부터') : '노래'}</i>}{e.pinned && <i className="pin">고정</i>}</span>
         <ChevronRight size={18} />
       </button>)}
     </div>}
