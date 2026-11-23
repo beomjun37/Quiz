@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
@@ -92,7 +92,7 @@ export default function Admin() {
     const what = { q: '문제 열기를 취소할까요? 이 문제에 낸 답은 지워져요.', answer: '정답 공개를 취소할까요? 점수가 공개 전으로 돌아가요.', bet: '베팅 단계를 취소할까요?', final: '최종 순위를 닫고 정답 공개 화면으로 돌아갈까요?', draw: '추첨 화면을 닫을까요? (이미 뽑힌 사람은 그대로예요)', end: '마무리 화면을 닫고 추첨으로 돌아갈까요?' }[view.phase]
     if (confirm(what)) run('back', { from_phase: view.phase, from_qi: view.qi })
   }
-  const openPreview = (list, idx) => setPreview({ list, idx })
+  const openPreview = (list, idx, extra = {}) => setPreview({ list, idx, ...extra })
 
   // iOS 앱처럼 하단 탭 3개: 진행(지금 할 일만) / 문제 / 설정
   return <div className="host-app">
@@ -148,6 +148,7 @@ export default function Admin() {
           <PlayCircle size={20} /><span>실전처럼 혼자 풀어 보기 (경품까지)</span><ChevronRight size={18} /></a>
       </div>
       {msg && <div className="err">{msg}</div>}
+      <BankBrowser admin={admin} phase={view.phase} setMsg={setMsg} onPreview={openPreview} onAdded={() => { setEditorKey((k) => k + 1); refreshQuestions(); refreshImages(); refreshAudios() }} />
       <QuestionCheck admin={admin} images={images} />
       <details className="group fold"><summary><Shuffle size={18} />문제 은행에서 랜덤으로 다시 뽑기</summary>
         <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages(); refreshQuestions() }} />
@@ -190,8 +191,8 @@ export default function Admin() {
         <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)} aria-current={tab === k ? 'page' : undefined}><Icon size={24} /><span>{l}</span></button>))}
     </nav>
     {qr && <QrOverlay url={base} onClose={() => setQr(false)} />}
-    {preview && <PreviewModal list={preview.list} start={preview.idx} admin={admin} images={images} audios={audios}
-      onClose={() => setPreview(null)} onSaved={refreshQuestions} />}
+    {preview && <PreviewModal list={preview.list} start={preview.idx} admin={admin} images={preview.bank ? [] : images} audios={preview.bank ? [] : audios}
+      bank={preview.bank} onAdd={preview.onAdd} onClose={() => setPreview(null)} onSaved={refreshQuestions} />}
   </div>
 }
 
@@ -439,7 +440,7 @@ function AutoRehearsal({ admin, view, setMsg }) {
 }
 
 // 참가자 화면 미리보기: 실제 폰 화면과 같은 모양으로 문제·타이머·사진 연출을 재생한다. 점수나 서버 상태는 건드리지 않는다.
-function PreviewModal({ list, start, admin, images, audios = [], onClose, onSaved }) {
+function PreviewModal({ list, start, admin, images, audios = [], bank = false, onAdd, onClose, onSaved }) {
   const [view, setView] = useState('player')   // player | host
   const ckKey = 'hq-checked'
   const sig = (x) => `${x.q}|${(x.opts ?? []).join(',')}|${x.answer}`
@@ -473,7 +474,7 @@ function PreviewModal({ list, start, admin, images, audios = [], onClose, onSave
         <button type="button" className={view === 'player' ? 'on' : ''} onClick={() => setView('player')}>참가자 화면</button>
         <button type="button" className={view === 'host' ? 'on' : ''} onClick={() => setView('host')}>진행자 화면</button>
       </div>
-      {view === 'host' && <HostReview q={q} idx={idx} hasImage={hasImage} img={img} hasAudio={audios.includes(idx)} admin={admin} onSaved={onSaved} />}
+      {view === 'host' && <HostReview q={q} idx={idx} hasImage={hasImage} img={img} hasAudio={audios.includes(idx)} admin={admin} onSaved={bank ? null : onSaved} bank={bank} />}
       {view === 'player' && <div className="phone preview-phone">
         <div className="round">{q.round} · {idx + 1}번</div>
         {!reveal && <div className={`timer ${left <= 5 ? 'hurry' : ''}`}>
@@ -499,6 +500,7 @@ function PreviewModal({ list, start, admin, images, audios = [], onClose, onSave
         <button className="ghost" disabled={idx === 0} onClick={() => setIdx((v) => v - 1)} aria-label="이전 문제"><ChevronLeft size={18} style={{ verticalAlign: -3 }} /> 이전</button>
         <button className="ghost" onClick={() => setReveal((r) => !r)}>{reveal ? '문제 보기' : '정답 보기'}</button>
         <button className="ghost" onClick={() => { setReveal(false); setT0(Date.now()) }} aria-label="다시 재생"><RotateCw size={16} style={{ verticalAlign: -3 }} /></button>
+        {bank && onAdd && <button className="ghost" onClick={() => onAdd(q)}><Plus size={16} style={{ verticalAlign: -3 }} /> 세트에 넣기</button>}
         <button className={`ghost ${checked.includes(sig(q)) ? 'checked' : ''}`} onClick={() => toggleCheck(sig(q))}><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {checked.includes(sig(q)) ? '확인함' : '확인'}</button>
         <button className="go" disabled={idx >= list.length - 1} onClick={() => setIdx((v) => v + 1)} aria-label="다음 문제">다음 <ChevronRight size={18} style={{ verticalAlign: -3 }} /></button>
       </div>
@@ -557,7 +559,7 @@ function LiveSong({ view, questions, audios, admin, onSaved }) {
 }
 
 // 점검 모드의 진행자 화면: 문제를 열었을 때 진행자가 보게 될 정보 전부(정답·멘트·해설·사진 원본·노래)
-function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved }) {
+function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved, bank = false }) {
   const label = q.answer != null && q.type ? options({ ...q, idx })[q.answer]?.[0] : q.type === 'survey' ? '공개할 때 결정 (가장 많이 고른 답)' : q.type === 'minority' ? '공개할 때 결정 (가장 적게 고른 답)' : '정답 없음 (투표)'
   const typeKo = { mc: '4지선다', ox: 'O/X', poll: '투표', survey: '다수결', minority: '소수결' }[q.type] ?? q.type
   const revealKo = { zoom: '확대 → 점점 작게', blur: '흐림 → 선명', pixel: '모자이크 → 선명', silhouette: '흑백 윤곽 → 원본' }[String(q.reveal ?? '').split('@')[0]]
@@ -566,7 +568,7 @@ function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved }) {
   if ((q.opts ?? []).some((o) => /^\(이름 \d\)$/.test(String(o).trim()))) problems.push("보기에 '(이름 1)' 같은 자리 표시가 남아 있어요")
   if (!q.note) problems.push('해설이 비어 있어요 (정답 공개 때 할 말이 없어요)')
   return <div className="phone preview-phone host-review">
-    <div className="round">{q.round} · {idx + 1}번 · {typeKo} · {q.limit_sec ?? 15}초{q.is_bet ? ' · 올인 베팅' : ''}</div>
+    <div className="round">{q.round} · {bank ? `난이도 ${['', '쉬움', '보통', '어려움'][q.diff]} · 출제 ${q.used}회` : `${idx + 1}번`} · {typeKo} · {q.limit_sec ?? 15}초{q.is_bet ? ' · 올인 베팅' : ''}</div>
     <h1 className="title" style={{ fontSize: 24 }}>{q.q}</h1>
     {problems.map((p) => <div key={p} className="warn"><AlertTriangle size={16} />{p}</div>)}
     <div className="host-say"><Mic size={18} /><p>{q.host || `${idx + 1}번 문제! ${q.limit_sec ?? 15}초 드립니다. 빨리 누를수록 점수가 높아요!`}</p></div>
@@ -574,7 +576,42 @@ function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved }) {
     {q.note && <div className="panel note"><span>해설 · {q.note}</span></div>}
     {hasImage && <div className="review-img">{img ? <img src={img} alt="사진 원본" /> : <span className="lead">사진 불러오는 중…</span>}<small>사진 원본 · 연출: {revealKo ?? '그대로'}</small></div>}
     {hasAudio && <ClipPlayer admin={admin} idx={idx} key={`rc${idx}`} />}
-    {!hasAudio && q.media && parseYouTube(q.media) && <YTPlayer media={q.media} key={`ry${idx}`} onSaveStart={async (sec) => { await admin('set_media', { idx, media: withStart(q.media, sec) }); onSaved?.() }} />}
+    {!hasAudio && q.media && parseYouTube(q.media) && <YTPlayer media={q.media} key={`ry${idx}`} onSaveStart={onSaved ? async (sec) => { await admin('set_media', { idx, media: withStart(q.media, sec) }); onSaved() } : undefined} />}
     {!hasAudio && q.media && !parseYouTube(q.media) && <div className="warn"><AlertTriangle size={16} />노래 검색어만 있어요 ("{q.media}") · 유튜브 링크나 음원을 넣으면 바로 재생돼요</div>}
   </div>
+}
+
+// 문제 은행 둘러보기: 카테고리를 고르면 그 카테고리 전체 문제를 참가자·진행자 화면으로 넘겨 본다
+const BANK_CATS = [['추억', '추억 소환'], ['가요', '추억의 가요'], ['노래', '노래 퀴즈'], ['요즘 말', '요즘 말 테스트'], ['예능', '예능·드라마'],
+  ['회사', '회사 생활'], ['상식', '상식 퀴즈'], ['다수결', '100명에게 물었습니다'], ['소수결', '소수가 이긴다'], ['베팅', '올인 베팅']]
+function BankBrowser({ admin, phase, setMsg, onPreview, onAdded }) {
+  const [stats, setStats] = useState(null)
+  const [cat, setCat] = useState(null)
+  const [items, setItems] = useState([])
+  useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
+  const total = (c) => stats?.[c] ? (stats[c]['1'] ?? 0) + (stats[c]['2'] ?? 0) + (stats[c]['3'] ?? 0) : 0
+  const all = stats ? Object.keys(stats).reduce((a, c) => a + total(c), 0) : 0
+  const asQ = (b, round) => ({ ...b, round, limit_sec: b.media ? 25 : 15, is_bet: b.cat === '베팅', reveal: '' })
+  async function open(c) {
+    setCat(c)
+    try { setItems(await admin('bank_list', { cat: c })) } catch { /* 메시지 표시됨 */ }
+  }
+  const add = async (q) => {
+    if (phase !== 'lobby') return setMsg('문제는 게임 시작 전(대기 단계)에만 넣을 수 있어요')
+    try { await admin('bank_add', { id: q.id }); setMsg(`"${q.q.slice(0, 18)}…"을(를) 지금 세트에 넣었어요 (베팅 문제 앞, 고정)`); onAdded() } catch { /* 메시지 표시됨 */ }
+  }
+  const round = BANK_CATS.find(([c]) => c === cat)?.[1]
+  return <details className="group fold bank-browse">
+    <summary><Library size={18} />문제 은행 둘러보기 <small className="num" style={{ color: 'var(--mute)', fontWeight: 500 }}>· {all}문제</small></summary>
+    <div className="cat-chips">{BANK_CATS.map(([c]) => <button key={c} type="button" className={cat === c ? 'on' : ''} onClick={() => open(c)}>{c} <b className="num">{total(c)}</b></button>)}</div>
+    {cat && <div className="bank-items">
+      <button className="row-btn" onClick={() => onPreview(items.map((b) => asQ(b, round)), 0, { bank: true, onAdd: add })}>
+        <Smartphone size={20} /><span>{cat} {items.length}문제 처음부터 넘겨 보기<small>참가자·진행자 화면으로 확인</small></span><ChevronRight size={18} /></button>
+      {items.map((b, i) => <button key={b.id} className="bank-item" onClick={() => onPreview(items.map((x) => asQ(x, round)), i, { bank: true, onAdd: add })}>
+        <span className={`diff d${b.diff}`}>{['', '쉬움', '보통', '어려움'][b.diff]}</span>
+        <span className="bq">{b.q}</span>
+        <small className="num">{b.used ? `${b.used}회` : '새 문제'}</small>
+      </button>)}
+    </div>}
+  </details>
 }
