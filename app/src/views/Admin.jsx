@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
+import { ask, ConfirmHost } from '../lib/confirm'
 import YTPlayer, { withStart } from '../lib/ytplayer'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
@@ -17,11 +18,13 @@ export default function Admin() {
   const [ok, setOk] = useState(false)
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [retry, setRetry] = useState(null)
   const { view, refetch } = useView(null, 2000)
   useWakeLock()
   const [qr, setQr] = useState(false)
   const [editorKey, setEditorKey] = useState(0)
   const [preview, setPreview] = useState(null)
+  const [qSheet, setQSheet] = useState(null)
   const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem('hq-tab') ?? 'live' } catch { return 'live' } })
   const setTab = (t) => { setTabState(t); try { sessionStorage.setItem('hq-tab', t) } catch { /* noop */ } window.scrollTo(0, 0) }
   const [questions, setQuestions] = useState([])
@@ -63,9 +66,14 @@ export default function Admin() {
   }
 
   async function admin(action, arg = {}) {
-    setBusy(true); setMsg(null)
+    setBusy(true); setMsg(null); setRetry(null)
     try { const r = await rpc('hq_admin', { p_pin: pin, p_action: action, p_arg: arg }); await refetch(); return r }
-    catch (e) { setMsg(`${errText(e.message)} (${e.message})`); throw e } finally { setBusy(false) }
+    catch (e) {
+      console.error('[hq_admin]', action, e.message)
+      const known = /^[A-Z_]{4,}$/.test(String(e.message).trim()) && errText(e.message) !== '처리 중 문제가 생겼어요'
+      setMsg(errText(e.message)); setRetry(known ? null : () => () => admin(action, arg).catch(() => {}))
+      throw e
+    } finally { setBusy(false) }
   }
   const run = (action, arg) => admin(action, arg).catch(() => {})
 
@@ -88,14 +96,15 @@ export default function Admin() {
   const phaseKo = { lobby: '입장 대기', bet: '베팅 중', q: '문제 푸는 중', answer: '정답 공개됨', final: '최종 순위', draw: '행운상 추첨', end: '마무리' }[view.phase]
   const base = location.href.split('#')[0]
 
-  const undo = () => {
+  const undo = async () => {
     const what = { q: '문제 열기를 취소할까요? 이 문제에 낸 답은 지워져요.', answer: '정답 공개를 취소할까요? 점수가 공개 전으로 돌아가요.', bet: '베팅 단계를 취소할까요?', final: '최종 순위를 닫고 정답 공개 화면으로 돌아갈까요?', draw: '추첨 화면을 닫을까요? (이미 뽑힌 사람은 그대로예요)', end: '마무리 화면을 닫고 추첨으로 돌아갈까요?' }[view.phase]
-    if (confirm(what)) run('back', { from_phase: view.phase, from_qi: view.qi })
+    if (await ask(what, { ok: '되돌리기' })) run('back', { from_phase: view.phase, from_qi: view.qi })
   }
   const openPreview = (list, idx, extra = {}) => setPreview({ list, idx, ...extra })
 
   // iOS 앱처럼 하단 탭 3개: 진행(지금 할 일만) / 문제 / 설정
   return <div className="host-app">
+    <ConfirmHost />
     {tab !== 'live' && view.phase !== 'lobby' && <MiniBar view={view} next={next} phaseKo={phaseKo} busy={busy} run={run} onOpen={() => setTab('live')} />}
 
     {tab === 'live' && <main className="tab-page">
@@ -104,7 +113,7 @@ export default function Admin() {
       {view.phase === 'q' && view.question && <LiveTimer view={view} />}
       <HostCard view={view} admin={admin} audios={audios} onPreview={(q, idx) => openPreview(questions, idx)} />
       <LiveSong view={view} questions={questions} audios={audios} admin={admin} onSaved={refreshQuestions} />
-      {msg && <div className="err">{msg}</div>}
+      {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
       <div className="live-actions">
         {next && view.phase !== 'draw' && <button className="go big" disabled={busy} onClick={() => run('next', { from_phase: view.phase, from_qi: view.qi })}>{next}<ChevronRight size={22} /></button>}
         {view.phase === 'draw' && <DrawControl view={view} run={run} busy={busy} />}
@@ -115,20 +124,20 @@ export default function Admin() {
         <button className="row-btn" onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={20} /><span>참가 링크 복사 (단톡방용)</span><ChevronRight size={18} /></button>
       </div>}
       {view.phase === 'q' && <div className="group">
-        <button className="row-btn" disabled={busy} onClick={() => confirm('이 문제를 건너뛸까요?\n낸 답은 지워지고, 점수 없이 바로 다음으로 넘어가요.') && run('skip', { from_phase: 'q', from_qi: view.qi })}>
+        <button className="row-btn" disabled={busy} onClick={async () => (await ask('이 문제를 건너뛸까요?\n낸 답은 지워지고, 점수 없이 바로 다음으로 넘어가요.', { ok: '건너뛰기' })) && run('skip', { from_phase: 'q', from_qi: view.qi })}>
           <SkipForward size={20} /><span>이 문제 건너뛰기<small>점수 없이 바로 다음 문제로</small></span><ChevronRight size={18} /></button>
-        <button className="row-btn" disabled={busy} onClick={() => confirm('이 문제를 취소할까요?\n낸 답은 지워지고, 문제를 열기 전으로 돌아가요. (다시 열 수 있어요)') && run('back', { from_phase: 'q', from_qi: view.qi })}>
+        <button className="row-btn" disabled={busy} onClick={async () => (await ask('이 문제를 취소할까요?\n낸 답은 지워지고, 문제를 열기 전으로 돌아가요. (다시 열 수 있어요)', { ok: '문제 취소', danger: true })) && run('back', { from_phase: 'q', from_qi: view.qi })}>
           <XCircle size={20} /><span>이 문제 취소<small>열기 전으로 돌아가기 · 다시 열 수 있어요</small></span><ChevronRight size={18} /></button>
       </div>}
       {view.phase !== 'lobby' && view.phase !== 'q' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
       {view.phase !== 'lobby' && <>
         <p className="group-label">게임을 처음부터 다시</p>
         <div className="group">
-          <button className="row-btn" disabled={busy} onClick={() => confirm('지금 게임을 멈추고 처음부터 다시 할까요?\n참가자는 그대로 남고 점수만 0점이 돼요. 1번 문제부터 다시 시작해요.') && run('restart')}>
+          <button className="row-btn" disabled={busy} onClick={async () => (await ask('지금 게임을 멈추고 처음부터 다시 할까요?\n참가자는 그대로 남고 점수만 0점이 돼요. 1번 문제부터 다시 시작해요.', { ok: '처음부터 다시' })) && run('restart')}>
             <RotateCcw size={20} /><span>처음부터 다시 (참가자 유지)<small>닉네임 그대로 · 점수 0점 · 1번부터</small></span><ChevronRight size={18} /></button>
-          <button className="row-btn danger-row" disabled={busy} onClick={() => {
-            if (!confirm('지금 게임을 멈추고 새 게임으로 갈까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.')) return
-            if (!confirm('정말 모두 지울까요?')) return
+          <button className="row-btn danger-row" disabled={busy} onClick={async () => {
+            if (!(await ask('지금 게임을 멈추고 새 게임으로 갈까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.', { ok: '모두 지우기', danger: true }))) return
+            if (!(await ask('정말 모두 지울까요?\n되돌릴 수 없어요.', { ok: '지우기', danger: true }))) return
             run('reset')
           }}><RotateCcw size={20} /><span>완전히 새로 (모두 다시 입장)<small>참가자·점수 모두 지우기</small></span></button>
         </div>
@@ -141,25 +150,41 @@ export default function Admin() {
     </main>}
 
     {tab === 'questions' && <main className="tab-page">
-      <header className="large-title"><small className="num">{view.total_q}문제</small><h1>문제</h1></header>
-      <div className="group">
-        <button className="row-btn" disabled={!questions.length} onClick={() => openPreview(questions, 0)}><Smartphone size={20} /><span>전체 문제 점검<small>문제마다 참가자·진행자 화면, 사진, 노래 확인</small></span><ChevronRight size={18} /></button>
-        <a className="row-btn" href={`${base}#/sim`} target="_blank" rel="noreferrer" onClick={() => { try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } }}>
-          <PlayCircle size={20} /><span>실전처럼 혼자 풀어 보기 (경품까지)</span><ChevronRight size={18} /></a>
-      </div>
-      {msg && <div className="err">{msg}</div>}
-      <BankBrowser admin={admin} phase={view.phase} setMsg={setMsg} onPreview={openPreview} onAdded={() => { setEditorKey((k) => k + 1); refreshQuestions(); refreshImages(); refreshAudios() }} />
-      <QuestionCheck admin={admin} images={images} />
-      <details className="group fold"><summary><Shuffle size={18} />문제 은행에서 랜덤으로 다시 뽑기</summary>
-        <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages(); refreshQuestions() }} />
-      </details>
+      <header className="large-title with-action"><div><small className="num">{view.total_q}문제</small><h1>문제</h1></div>
+        <button className="more-btn" aria-label="문제 메뉴" onClick={() => setQSheet('menu')}><MoreHorizontal size={24} /></button></header>
+      {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
       <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage}
         onPreview={openPreview} onSaved={refreshQuestions} audios={audios} onAudio={onAudio} />
     </main>}
+    {qSheet === 'menu' && <div className="sheet-bg" onClick={() => setQSheet(null)}>
+      <div className="action-sheet" onClick={(e) => e.stopPropagation()} role="menu">
+        <div className="as-group">
+          {[['review', Smartphone, '전체 문제 점검', () => { setQSheet(null); openPreview(questions, 0) }],
+            ['sim', PlayCircle, '실전처럼 혼자 풀어 보기', () => { setQSheet(null); try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } window.open(`${base}#/sim`, '_blank') }],
+            ['shuffle', Shuffle, '랜덤으로 다시 뽑기', () => setQSheet('shuffle')],
+            ['bank', Library, '문제 은행 둘러보기', () => setQSheet('bank')],
+            ['check', ClipboardCheck, '문항 점검', () => setQSheet('check')]].map(([k, Icon, l, fn]) =>
+            <button key={k} className="as-btn as-row" onClick={fn}><Icon size={20} />{l}</button>)}
+        </div>
+        <button className="as-btn as-cancel" onClick={() => setQSheet(null)}>닫기</button>
+      </div>
+    </div>}
+    {['shuffle', 'bank', 'check'].includes(qSheet) && <div className="sheet-bg" onClick={() => setQSheet(null)}>
+      <div className="sheet page-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-head"><b>{{ shuffle: '랜덤으로 다시 뽑기', bank: '문제 은행 둘러보기', check: '문항 점검' }[qSheet]}</b>
+          <button onClick={() => setQSheet(null)} aria-label="닫기"><Close size={20} /></button></div>
+        <div className="sheet-list host-app-inner">
+          {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
+          {qSheet === 'shuffle' && <BankPanel admin={admin} phase={view.phase} setMsg={setMsg} onDone={() => { setEditorKey((k) => k + 1); refreshImages(); refreshQuestions(); setQSheet(null) }} />}
+          {qSheet === 'bank' && <BankBrowser admin={admin} phase={view.phase} setMsg={setMsg} onPreview={openPreview} open onAdded={() => { setEditorKey((k) => k + 1); refreshQuestions(); refreshImages(); refreshAudios() }} />}
+          {qSheet === 'check' && <QuestionCheck admin={admin} images={images} auto />}
+        </div>
+      </div>
+    </div>}
 
     {tab === 'settings' && <main className="tab-page">
       <header className="large-title"><h1>설정</h1></header>
-      {msg && <div className="err">{msg}</div>}
+      {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
       <p className="group-label">참가자 접속</p>
       <div className="group">
         <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
@@ -172,15 +197,15 @@ export default function Admin() {
       </div>
       <p className="group-label">다시 하기</p>
       <div className="group">
-        <button className="row-btn" disabled={busy} onClick={() => confirm('한 판 더 할까요?\n닉네임은 그대로, 점수만 0점이 돼요. (가상 참가자는 빠져요)') && run('restart')}>
+        <button className="row-btn" disabled={busy} onClick={async () => (await ask('한 판 더 할까요?\n닉네임은 그대로, 점수만 0점이 돼요. (가상 참가자는 빠져요)', { ok: '한 판 더' })) && run('restart')}>
           <RotateCcw size={20} /><span>한 판 더<small>닉네임 유지 · 점수만 0점</small></span><ChevronRight size={18} /></button>
       </div>
       <p className="group-label">보안</p>
       <div className="group pad"><PinChange admin={admin} busy={busy} onChanged={(p) => { setPin(p); savePin(p) }} /></div>
       <div className="group">
-        <button className="row-btn danger-row" disabled={busy} onClick={() => {
-          if (!confirm('새 게임을 시작할까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.')) return
-          if (view.phase !== 'lobby' && !confirm('지금 게임이 진행 중이에요. 정말 모두 지울까요?')) return
+        <button className="row-btn danger-row" disabled={busy} onClick={async () => {
+          if (!(await ask('새 게임을 시작할까요?\n모든 참가자가 입장 화면으로 돌아가고 기록이 지워져요.', { ok: '새 게임', danger: true }))) return
+          if (view.phase !== 'lobby' && !(await ask('지금 게임이 진행 중이에요.\n정말 모두 지울까요?', { ok: '지우기', danger: true }))) return
           run('reset')
         }}><RotateCcw size={20} /><span>새 게임 (모든 기록 지우기)<small>리허설 후 · 행사가 끝난 뒤</small></span></button>
       </div>
@@ -369,7 +394,7 @@ function BankPanel({ admin, phase, setMsg, onDone }) {
       <button type="button" key={d} className={minDiff === d ? 'on' : ''} onClick={() => setMinDiff(d)}>{l}</button>))}</div>
     <label style={{ fontSize: 14, color: 'var(--mute)' }}><input type="checkbox" checked={bet} onChange={(e) => setBet(e.target.checked)} /> 마지막에 올인 베팅 문제 넣기</label>
     <button className="go" style={{ marginTop: 10 }} disabled={phase !== 'lobby'} onClick={async () => {
-      if (!confirm(`은행에서 ${total}문제를 새로 뽑을까요?\n'고정'한 문제는 그대로 남고, 나머지 문제는 바뀌어요.`)) return
+      if (!(await ask(`은행에서 ${total}문제를 새로 뽑을까요?\n'고정'한 문제는 그대로 남고, 나머지 문제는 바뀌어요.`, { ok: '새로 뽑기' }))) return
       try { const r = await admin('compose', { counts, min_diff: minDiff, bet }); setMsg(`랜덤 세트를 만들었어요 (고정 문제 포함 총 ${r.total}문제)`); onDone() } catch { /* 메시지 표시됨 */ }
     }}><Shuffle size={18} />랜덤 세트 만들기</button>
     <p className="lead num" style={{ fontSize: 13, margin: '6px 0 0' }}>은행에서 {total}문제 + 고정한 문제</p>
@@ -377,7 +402,7 @@ function BankPanel({ admin, phase, setMsg, onDone }) {
 }
 
 // 문항 점검: 회식 전에 한 번 눌러 보면 빠진 것을 한꺼번에 알려 준다.
-function QuestionCheck({ admin, images }) {
+function QuestionCheck({ admin, images, auto = false }) {
   const [res, setRes] = useState(null)
   async function check() {
     let list; try { list = await admin('questions_get') } catch { return }
@@ -403,6 +428,7 @@ function QuestionCheck({ admin, images }) {
     const mins = Math.round(list.reduce((a, q) => a + q.limit_sec + 75, 0) / 60)
     setRes({ out, total: list.length, mins })
   }
+  useEffect(() => { if (auto) check() }, []) // eslint-disable-line
   return <div className="check">
     <button className="ghost" onClick={check}><ClipboardCheck size={15} style={{ verticalAlign: -2 }} /> 문항 점검하기</button>
     {res && <div className="check-res">
@@ -421,7 +447,7 @@ function AutoRehearsal({ admin, view, setMsg }) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
   async function go() {
     if ((view.humans ?? 0) > 0) { setMsg(`실제 참가자 ${view.humans}명이 들어와 있어서 자동 리허설을 할 수 없어요 (끝나면 기록이 지워져요)`); return }
-    if (!confirm('자동 리허설을 시작할까요?\n가상 참가자 30명으로 끝까지 빠르게 진행한 뒤, 새 게임으로 정리해요.\n(실제 참가자가 있으면 그분들도 같이 진행돼요)')) return
+    if (!(await ask('자동 리허설을 시작할까요?\n가상 참가자 30명으로 끝까지 빠르게 진행한 뒤, 새 게임으로 정리해요.\n(실제 참가자가 있으면 그분들도 같이 진행돼요)', { ok: '시작' }))) return
     stop.current = false; setRunning(true)
     try {
       await admin('bots', { n: 30 })
@@ -586,7 +612,7 @@ function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved, bank = fa
 // 문제 은행 둘러보기: 카테고리를 고르면 그 카테고리 전체 문제를 참가자·진행자 화면으로 넘겨 본다
 const BANK_CATS = [['추억', '추억 소환'], ['가요', '추억의 가요'], ['노래', '노래 퀴즈'], ['요즘 말', '요즘 말 테스트'], ['예능', '예능·드라마'],
   ['이모지', '이모지 퀴즈'], ['회사', '회사 생활'], ['상식', '상식 퀴즈'], ['다수결', '100명에게 물었습니다'], ['소수결', '소수가 이긴다'], ['베팅', '올인 베팅']]
-function BankBrowser({ admin, phase, setMsg, onPreview, onAdded }) {
+function BankBrowser({ admin, phase, setMsg, onPreview, onAdded, open: forceOpen = false }) {
   const [stats, setStats] = useState(null)
   const [cat, setCat] = useState(null)
   const [items, setItems] = useState([])
@@ -594,7 +620,7 @@ function BankBrowser({ admin, phase, setMsg, onPreview, onAdded }) {
   const total = (c) => stats?.[c] ? (stats[c]['1'] ?? 0) + (stats[c]['2'] ?? 0) + (stats[c]['3'] ?? 0) : 0
   const all = stats ? Object.keys(stats).reduce((a, c) => a + total(c), 0) : 0
   const asQ = (b, round) => ({ ...b, round, limit_sec: b.media ? 25 : 15, is_bet: b.cat === '베팅', reveal: '' })
-  async function open(c) {
+  async function openCat(c) {
     setCat(c)
     try { setItems(await admin('bank_list', { cat: c })) } catch { /* 메시지 표시됨 */ }
   }
@@ -603,9 +629,9 @@ function BankBrowser({ admin, phase, setMsg, onPreview, onAdded }) {
     try { await admin('bank_add', { id: q.id }); setMsg(`"${q.q.slice(0, 18)}…"을(를) 지금 세트에 넣었어요 (베팅 문제 앞, 고정)`); onAdded() } catch { /* 메시지 표시됨 */ }
   }
   const round = BANK_CATS.find(([c]) => c === cat)?.[1]
-  return <details className="group fold bank-browse">
+  return <details className="group fold bank-browse" open={forceOpen || undefined}>
     <summary><Library size={18} />문제 은행 둘러보기 <small className="num" style={{ color: 'var(--mute)', fontWeight: 500 }}>· {all}문제</small></summary>
-    <div className="cat-chips">{BANK_CATS.map(([c]) => <button key={c} type="button" className={cat === c ? 'on' : ''} onClick={() => open(c)}>{c} <b className="num">{total(c)}</b></button>)}</div>
+    <div className="cat-chips">{BANK_CATS.map(([c]) => <button key={c} type="button" className={cat === c ? 'on' : ''} onClick={() => openCat(c)}>{c} <b className="num">{total(c)}</b></button>)}</div>
     {cat && <div className="bank-items">
       <button className="row-btn" onClick={() => onPreview(items.map((b) => asQ(b, round)), 0, { bank: true, onAdd: add })}>
         <Smartphone size={20} /><span>{cat} {items.length}문제 처음부터 넘겨 보기<small>참가자·진행자 화면으로 확인</small></span><ChevronRight size={18} /></button>
@@ -616,4 +642,14 @@ function BankBrowser({ admin, phase, setMsg, onPreview, onAdded }) {
       </button>)}
     </div>}
   </details>
+}
+
+// 안내·오류 한 줄. 통신 같은 일시적 오류면 "다시 시도" 버튼(iOS 알림처럼 짧게)
+function Notice({ msg, retry, onClose }) {
+  const ok = /했어요|붙였어요|뺐어요|넣었어요|저장|복사|완료/.test(msg)
+  return <div className={`notice ${ok ? 'ok' : 'bad'}`} role={ok ? 'status' : 'alert'}>
+    <span>{msg}</span>
+    {retry && <button onClick={retry}>다시 시도</button>}
+    <button aria-label="닫기" onClick={onClose}><Close size={16} /></button>
+  </div>
 }
