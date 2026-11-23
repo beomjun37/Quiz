@@ -22,7 +22,11 @@ export async function rpc(fn, args, { retry = true } = {}) {
     if (i) await new Promise((r) => setTimeout(r, 400 * 2 ** (i - 1)))
     try {
       const { data, error } = await supabase.rpc(fn, args)
-      if (!error) return data
+      if (!error) {
+        // 서버가 예외 대신 { ok: false, error } 로 거절한 경우(예: PIN 실패 횟수 기록)
+        if (data && data.ok === false && data.error) throw new Error(data.error)
+        return data
+      }
       if (!NETWORK.test(error.message) || error.code) throw new Error(error.message)
       last = new Error(error.message)
     } catch (e) {

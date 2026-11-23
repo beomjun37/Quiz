@@ -23,11 +23,13 @@ create or replace function hq_join(p_name text, p_id uuid default null)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare r hq_players;
 begin
-  if p_id is not null then
-    select * into r from hq_players where id = p_id;
-    if found then return to_jsonb(r); end if;
-  end if;
   p_name := regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g');
+  -- 재전송이면 같은 사람으로 처리. 단 닉네임까지 같을 때만(남의 id 만 알아서는 그 사람이 될 수 없게)
+  if p_id is not null then
+    select * into r from hq_players where id = p_id and lower(replace(name, ' ', '')) = lower(replace(p_name, ' ', ''));
+    if found then return to_jsonb(r); end if;
+    if exists (select 1 from hq_players where id = p_id) then p_id := null; end if;
+  end if;
   if char_length(p_name) < 1 or char_length(p_name) > 12 then raise exception 'BAD_NAME'; end if;
   if exists (select 1 from hq_players where lower(replace(name, ' ', '')) = lower(replace(p_name, ' ', ''))) then
     raise exception 'NAME_TAKEN';
@@ -161,7 +163,7 @@ begin
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
         'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
-        'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal,
+        'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal, 'music', q.media <> '',
         'answer', case when revealed then q.answer end,
         'note', case when revealed then q.note end) end,
     'submitted', (select count(*) from hq_answers a where a.qi = s.qi and a.at <= now()),
@@ -175,7 +177,7 @@ begin
         select name, score, last_gain as gain, prev_rank, streak, created_at, id = p_player as is_me,
                rank() over (order by score desc)::int as rank
         from hq_players where active order by score desc, created_at limit 10) x),
-    'winners', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'is_me', id = p_player)), '[]') from hq_players where id = any(s.winner_ids)),
+    'winners', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'is_me', id = p_player)), '[]') from hq_players where id = any(select unnest(winner_ids) from hq_draw where id = 1)),
     'lucky_all', case when s.phase in ('draw','end') then (select coalesce(jsonb_agg(name order by name), '[]') from hq_players where won) end,
     'end_msg', s.end_msg, 'end_credits', case when s.phase = 'end' then s.end_credits end,
     'reactions', case when revealed then (select coalesce(jsonb_object_agg(kind, n), '{}') from hq_reactions where qi = s.qi) end,
@@ -194,9 +196,15 @@ create or replace function hq_admin(p_pin text, p_action text, p_arg jsonb defau
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare s hq_state; nq hq_questions; n int; i int; c_cat text; c_round text;
 begin
+  if exists (select 1 from hq_config where id = 1 and locked_until > now()) then raise exception 'PIN_LOCKED'; end if;
   if not exists (select 1 from hq_config where id = 1 and pin_hash = crypt(p_pin, pin_hash)) then
-    raise exception 'BAD_PIN';
+    -- 10번 틀리면 5분 잠금(무차별 대입 방지). 예외로 끝나면 이 갱신도 되돌려지므로 별도 함수로 커밋한다.
+    update hq_config set
+      locked_until = case when fails + 1 >= 10 then now() + interval '5 minutes' end,
+      fails = case when fails + 1 >= 10 then 0 else fails + 1 end where id = 1;
+    return jsonb_build_object('ok', false, 'error', 'BAD_PIN');  -- 예외 대신 반환해야 실패 횟수가 저장된다
   end if;
+  update hq_config set fails = 0 where id = 1 and fails > 0;
   select * into s from hq_state where id = 1 for update;
 
   if p_action = 'check' then
@@ -225,19 +233,26 @@ begin
       perform hq_reveal();
     elsif s.phase = 'final' then
       update hq_state set phase = 'draw', winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
+      update hq_draw set winner_ids = '{}' where id = 1;
     elsif s.phase = 'draw' then
       update hq_state set phase = 'end', updated_at = now() where id = 1;
     end if;
 
   elsif p_action = 'draw' then
-    -- 행운상: 1~3등(순위 상품 대상)과 이미 뽑힌 사람을 빼고, 서버가 n명을 한 번에 무작위로 뽑는다.
+    -- 행운상: 1~3등과 이미 뽑힌 사람을 빼고, 서버가 n명을 한 번에 무작위로 뽑는다.
+    if s.phase not in ('final', 'draw') then raise exception 'NOT_DRAW'; end if;
+    -- 재전송 방지: 화면에서 보던 추첨 시각과 지금 시각이 다르면 이미 처리된 요청
+    if p_arg ? 'from_drawn' and coalesce(s.drawn_at::text, '') <> coalesce(p_arg->>'from_drawn', '') then
+      return jsonb_build_object('ok', true, 'skipped', true);
+    end if;
     n := least(greatest(coalesce((p_arg->>'n')::int, 1), 1), 20);
-    update hq_state set phase = 'draw', drawn_at = now(), updated_at = now(),
-      winner_ids = coalesce((select array_agg(id) from (
-        select id from (select id, won, rank() over (order by score desc) rk from hq_players) r
-        where not won and rk > 3 order by random() limit n) z), '{}')
+    update hq_draw set winner_ids = coalesce((select array_agg(id) from (
+        select id from (select id, won, row_number() over (order by score desc, created_at) rk from hq_players) r
+        where not won and rk > 3 order by random() limit n) z), '{}')  -- 공동 순위여도 위에서 3명만 뺀다
     where id = 1;
-    update hq_players set won = true where id = any(select unnest(winner_ids) from hq_state where id = 1);
+    if (select cardinality(winner_ids) from hq_draw where id = 1) = 0 then raise exception 'NO_CANDIDATE'; end if;
+    update hq_players set won = true where id = any(select unnest(winner_ids) from hq_draw where id = 1);
+    update hq_state set phase = 'draw', drawn_at = now(), updated_at = now() where id = 1;
 
   elsif p_action = 'set_pin' then                   -- PIN 바꾸기 (4~12자)
     if char_length(coalesce(p_arg->>'pin', '')) not between 4 and 12 then raise exception 'BAD_NEW_PIN'; end if;
@@ -260,13 +275,15 @@ begin
       update hq_players set score = prev_score, streak = prev_streak, max_streak = prev_max_streak,
         active = prev_active, last_gain = 0, last_bonus = '{}' where true;
       update hq_questions set answer = null where idx = s.qi and type in ('survey', 'minority');
-      update hq_state set phase = 'q', updated_at = now() where id = 1;
+      delete from hq_reactions where qi = s.qi;
+      update hq_state set phase = 'q', q_started_at = now(), updated_at = now() where id = 1;  -- 다시 풀 수 있게 시간도 새로
     elsif s.phase = 'bet' then
       update hq_state set phase = case when s.qi < 0 then 'lobby' else 'answer' end, updated_at = now() where id = 1;
     elsif s.phase = 'final' then
       update hq_state set phase = 'answer', updated_at = now() where id = 1;
     elsif s.phase = 'draw' then
       update hq_state set phase = 'final', winner_ids = '{}', updated_at = now() where id = 1;
+      update hq_draw set winner_ids = '{}' where id = 1;
     elsif s.phase = 'end' then
       update hq_state set phase = 'draw', updated_at = now() where id = 1;
     end if;
@@ -294,6 +311,7 @@ begin
     delete from hq_answers where qi >= n;
     update hq_players set card = null, card_qi = null, card_hide = null where card_qi >= n;
     update hq_state set qi = n - 1, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
+    update hq_draw set winner_ids = '{}' where id = 1;
     if (select is_bet from hq_questions where idx = n) then
       update hq_state set phase = 'bet', q_started_at = null where id = 1;
     else
@@ -314,9 +332,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false)
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false), coalesce(e->>'media', '')
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
 
@@ -340,16 +358,22 @@ begin
     update hq_players set score = 0, active = false, won = false, prev_score = 0, prev_rank = null, last_gain = 0,
       streak = 0, max_streak = 0, last_bonus = '{}', card = null, card_qi = null, card_hide = null where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
+    update hq_draw set winner_ids = '{}' where id = 1;
+    update hq_questions set answer = null where type in ('survey', 'minority');  -- 지난 판에 정해진 다수결·소수결 정답 지우기
+    delete from hq_reactions where true;
 
   elsif p_action = 'reset' then                     -- 새 게임 / 행사 후 개인정보 삭제
     delete from hq_answers where true; delete from hq_bets where true; delete from hq_reactions where true; delete from hq_players where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
+    update hq_draw set winner_ids = '{}' where id = 1;
+    update hq_questions set answer = null where type in ('survey', 'minority');  -- 지난 판에 정해진 다수결·소수결 정답 지우기
+    delete from hq_reactions where true;
 
   elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
     return jsonb_build_object(
-      'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'note', note, 'host', host) from hq_questions where idx = s.qi),
+      'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'note', note, 'host', host, 'media', media) from hq_questions where idx = s.qi),
       'next', (select jsonb_build_object('idx', idx, 'q', q, 'type', type, 'opts', opts, 'answer', answer, 'host', host, 'is_bet', is_bet,
-               'round', round, 'note', note, 'limit_sec', limit_sec,
+               'round', round, 'note', note, 'limit_sec', limit_sec, 'media', media,
                'reveal', reveal, 'has_image', exists (select 1 from hq_images i where i.idx = hq_questions.idx))
                from hq_questions where idx = s.qi + 1),
       'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));
@@ -364,14 +388,14 @@ begin
     -- p_arg: {"counts": {"추억": 3, ...}, "min_diff": 2, "bet": true}
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     create temp table _pick (ord serial, round text, type text, q text, opts jsonb, answer int, note text, host text,
-      is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int, topic text) on commit drop;
+      is_bet boolean, limit_sec int, reveal text, pinned boolean, old_idx int, bank_id int, topic text, media text default '') on commit drop;
     -- 카테고리를 순서대로 하나씩 뽑는다. 같은 주제(topic)는 세트 전체에서 한 문제만(앞 카테고리에서 나온 주제는 제외).
     -- 순서도 흐름을 고려: 몸풀기(추억) → 다수결 → 요즘 말 → 가요 → 회사 → 소수결 → 예능 → 상식
     for c_cat, c_round in select * from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
                                                 ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'),
-                                                ('예능', '예능·드라마 소환'), ('상식', '상식 퀴즈')) v(cat, r) loop
-      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic)
-      select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, 15, '', false, u.id, nullif(u.topic, '')
+                                                ('예능', '예능·드라마 소환'), ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) loop
+      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic, media)
+      select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, case when u.media <> '' then 25 else 15 end, '', false, u.id, nullif(u.topic, ''), u.media
       from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
             from hq_bank b0
             where b0.cat = c_cat and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
@@ -380,8 +404,8 @@ begin
       order by u.used, random()
       limit greatest(coalesce((p_arg->'counts'->>c_cat)::int, 0), 0);
     end loop;
-    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx)
-      select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx
+    insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx, media)
+      select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx, media
       from hq_questions where pinned and not is_bet order by idx;
     if coalesce((p_arg->>'bet')::boolean, true) then
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
@@ -406,8 +430,8 @@ begin
     delete from hq_images where true;
     insert into hq_images (idx, data) select idx, data from _img;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned)
-      select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned from _pick p join _ord o on o.ord = p.ord;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
+      select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media from _pick p join _ord o on o.ord = p.ord;
     update hq_bank set used = used + 1 where id in (select bank_id from _pick where bank_id is not null);
     return jsonb_build_object('ok', true, 'total', (select count(*) from _pick));
 
@@ -461,6 +485,11 @@ begin
     select choice into q.answer from hq_answers where qi = s.qi group by choice
     order by case when q.type = 'survey' then -count(*) else count(*) end, random() limit 1;
     update hq_questions set answer = q.answer where idx = s.qi;
+    if q.answer is null then  -- 아무도 안 냈으면 채점(연속 정답·베팅 포함)을 건너뛴다
+      update hq_players set last_gain = 0 where true;
+      update hq_state set phase = 'answer', updated_at = now() where id = 1;
+      return;
+    end if;
   end if;
 
   if q.type = 'poll' then
@@ -487,7 +516,7 @@ begin
                a.player_id is not null as answered,
                coalesce(a.choice = q.answer, false) as correct,
                hq_points(a.choice = q.answer, s.q_started_at, a.at, q.limit_sec) as base,
-               case when q.is_bet then round(p2.score * coalesce(b.pct, 0) / 100.0)::int else 0 end as stake
+               case when q.is_bet then round(greatest(p2.score, 0) * coalesce(b.pct, 0) / 100.0)::int else 0 end as stake
         from hq_players p2
         left join hq_answers a on a.player_id = p2.id and a.qi = s.qi
         left join hq_bets b on b.player_id = p2.id

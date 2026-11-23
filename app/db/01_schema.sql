@@ -80,7 +80,15 @@ alter table hq_players add column if not exists card_hide jsonb;                
 alter table hq_questions add column if not exists host text not null default '';  -- 진행자 멘트(선택)
 
 alter table hq_players add column if not exists max_streak int not null default 0;   -- 최고 연속 정답
-alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- 방금 뽑힌 행운상(여러 명)
+alter table hq_state add column if not exists winner_ids uuid[] not null default '{}';  -- (더 이상 쓰지 않음: hq_state 는 공개라 id 가 샌다)
+-- 방금 뽑힌 행운상: 참가자 id 가 들어 있으므로 공개 테이블(hq_state)이 아니라 비공개 테이블에 둔다
+create table if not exists hq_draw (id int primary key default 1 check (id = 1), winner_ids uuid[] not null default '{}');
+insert into hq_draw (id) values (1) on conflict do nothing;
+alter table hq_draw enable row level security;
+update hq_state set winner_ids = '{}' where id = 1;
+-- 진행자 PIN 무차별 대입 방지: 10번 틀리면 5분 잠금
+alter table hq_config add column if not exists fails int not null default 0;
+alter table hq_config add column if not exists locked_until timestamptz;
 alter table hq_state add column if not exists end_msg text not null default '오늘 함께해 주셔서 감사합니다! 즐거운 저녁 되세요';
 
 -- 사진 연출: '' | zoom(확대→축소) | blur(흐림→선명) | pixel(모자이크→선명) | silhouette(그림자→원본)
@@ -109,6 +117,14 @@ alter table hq_bank add constraint hq_bank_type_check check (type in ('ox','mc',
 
 -- 마무리 화면 맨 아래 작은 글씨(사진 출처 등)
 alter table hq_state add column if not exists end_credits text not null default '';
+
+-- 노래 퀴즈: 진행자가 자기 폰으로 틀 노래의 검색어(예: "쿨 해변의 여인"). 음원은 앱에 넣지 않는다.
+-- 정답이 드러나므로 참가자용 hq_view 에는 싣지 않고 진행자 RPC(current)로만 내려준다.
+alter table hq_questions add column if not exists media text not null default '';
+alter table hq_bank add column if not exists media text not null default '';
+-- 노래 문제는 문제 글이 같아서(지금 나오는 노래 제목은?) 문제 글 + 노래 검색어로 구분한다
+alter table hq_bank drop constraint if exists hq_bank_q_key;
+create unique index if not exists hq_bank_q_media on hq_bank (q, media);
 
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;

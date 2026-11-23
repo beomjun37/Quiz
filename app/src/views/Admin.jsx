@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { rpc } from '../lib/supabase'
@@ -221,6 +221,7 @@ function HostCard({ view, admin, onPreview }) {
     case 'answer':
       say = q.type === 'poll'
         ? `투표 결과 나왔습니다! 1등은 '${options(q)[view.dist.indexOf(Math.max(...view.dist))][0]}'! ${q.note || ''}`
+        : q.answer == null ? '아무도 답을 안 냈네요! 이번 문제는 점수 없이 넘어갑니다.'
         : `정답은 '${label(q, q.answer)}'! ${correct}명이 맞혔습니다. ${trapText(q, view.dist)}${q.note || ''} 지금 1등은 ${top[0]?.name ?? '-'}님!`
       break
     case 'bet':
@@ -242,12 +243,15 @@ function HostCard({ view, admin, onPreview }) {
     {view.phase === 'answer' && view.reactions && <div className="host-ans">반응 {['clap', 'lol', 'beer', 'fire'].map((k) => `${REACT_EMOJI[k]} ${view.reactions[k] ?? 0}`).join('  ')}</div>}
     {nx && nx.reveal && !nx.has_image && ['lobby', 'answer', 'bet'].includes(view.phase) &&
       <div className="warn"><AlertTriangle size={16} />다음 {nx.idx + 1}번은 사진 문제인데 사진이 없어요. 문항 편집에서 붙이거나 건너뛰세요.</div>}
+    {q && ['q', 'answer'].includes(view.phase) && cur?.now?.media && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
+      <Music size={22} /><span>노래 틀기: {cur.now.media}<small>유튜브가 열려요 · 앞부분 10초만 틀고 멈추세요</small></span></a>}
     {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
       정답 <b>{label(q, cur.now.answer)}</b>{cur.now.note && <span> · {cur.now.note}</span>}</div>}
     {nx && ['lobby', 'answer', 'bet'].includes(view.phase) && <div className="host-next">
       <small>다음 {nx.idx + 1}번{nx.is_bet ? ' (베팅 문제)' : ''}</small>
       <p>{nx.q}</p>
       <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
+      {nx.media && <span style={{ display: 'block', marginTop: 4 }}><Music size={14} /> 노래 퀴즈: 미리 "{nx.media}" 검색해 두세요</span>}
       <button className="ghost" style={{ margin: '8px 0 0', display: 'block' }} onClick={() => onPreview(nx, nx.idx)}><Smartphone size={15} style={{ verticalAlign: -2 }} /> 참가자 화면 미리보기</button>
     </div>}
   </div>
@@ -262,7 +266,7 @@ function DrawControl({ view, run, busy }) {
       <b className="num">{n}명</b>
       <button type="button" onClick={() => setN((v) => Math.min(20, v + 1))} aria-label="늘리기">+</button>
     </div>
-    <button className="go" disabled={busy} onClick={() => run('draw', { n })}><Dices size={22} />{n}명 뽑기</button>
+    <button className="go" disabled={busy} onClick={() => run('draw', { n, from_drawn: view.drawn_at ?? '' })}><Dices size={22} />{n}명 뽑기</button>
     <p className="lead" style={{ fontSize: 14, width: '100%' }}>1~3등과 이미 뽑힌 사람은 빼고 뽑아요. 지금까지 {view.drawn}명 당첨.
       {(view.winners ?? []).length > 0 && <> 방금: <b style={{ color: 'var(--fg)' }}>{view.winners.map((w) => w.name).join(', ')}</b></>}</p>
     <button className="go" style={{ background: 'var(--ink-3)', color: 'var(--fg)' }} disabled={busy}
@@ -318,10 +322,10 @@ function PinChange({ admin, busy, onChanged }) {
 }
 
 // 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(사진 문제 등)는 그대로 두고 나머지만 새로 뽑는다.
-const CATS = ['추억', '가요', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
+const CATS = ['추억', '가요', '노래', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
 function BankPanel({ admin, phase, setMsg, onDone }) {
   const [stats, setStats] = useState(null)
-  const [counts, setCounts] = useState({ 추억: 2, 가요: 1, '요즘 말': 1, 예능: 1, 회사: 1, 상식: 1, 다수결: 1, 소수결: 1 })
+  const [counts, setCounts] = useState({ 추억: 2, 가요: 1, 노래: 1, '요즘 말': 1, 예능: 1, 회사: 1, 상식: 1, 다수결: 1, 소수결: 1 })
   const [minDiff, setMinDiff] = useState(2)
   const [bet, setBet] = useState(true)
   useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
@@ -443,6 +447,7 @@ function PreviewModal({ list, start, admin, images, onClose }) {
         {!reveal && <div className={`timer ${left <= 5 ? 'hurry' : ''}`}>
           <div className="bar"><i style={{ width: `${(left / limit) * 100}%` }} /></div><b className="num">{Math.ceil(left)}</b></div>}
         <h1 className="title">{q.q}</h1>
+        {q.media && <div className="music"><span className="eq"><i /><i /><i /><i /></span>노래 퀴즈 · 진행자가 "{q.media}"를 틀어요</div>}
         {q.type === 'survey' && <p className="rule-hint">다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'minority' && <p className="rule-hint">소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'poll' && <p className="lead">정답 없는 투표예요. 점수엔 영향 없어요.</p>}

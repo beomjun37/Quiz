@@ -5,18 +5,18 @@ const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['m
 const NO_ANSWER = ['poll', 'survey', 'minority']
 const LIMITS = [10, 15, 20, 30]
 
-const blank = () => ({ round: '', type: 'mc', q: '', opts: ['', '', '', ''], answer: 0, note: '', host: '', is_bet: false, limit_sec: 15, reveal: '', pinned: true })
+const blank = () => ({ round: '', type: 'mc', q: '', opts: ['', '', '', ''], answer: 0, note: '', host: '', is_bet: false, limit_sec: 15, reveal: '', pinned: true, media: '' })
 
 // 서버 형식 ↔ 편집 형식
 const fromServer = (r) => ({
   round: r.round ?? '', type: r.type, q: r.q ?? '', note: r.note ?? '', host: r.host ?? '',
   opts: r.type === 'ox' ? ['', '', '', ''] : [...(r.opts ?? []), '', '', '', ''].slice(0, 4),
-  answer: r.answer, is_bet: !!r.is_bet, limit_sec: r.limit_sec ?? 15, reveal: r.reveal ?? '', pinned: !!r.pinned,
+  answer: r.answer, is_bet: !!r.is_bet, limit_sec: r.limit_sec ?? 15, reveal: r.reveal ?? '', pinned: !!r.pinned, media: r.media ?? '',
 })
 const toServer = (e) => ({
   round: e.round.trim(), type: e.type, q: e.q.trim(), note: e.note.trim(), host: e.host.trim(),
   opts: e.type === 'ox' ? [] : e.opts.map((o) => o.trim()),
-  answer: NO_ANSWER.includes(e.type) ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal, pinned: e.pinned,
+  answer: NO_ANSWER.includes(e.type) ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal, pinned: e.pinned, media: e.media.trim(),
 })
 
 function problems(list) {
@@ -98,6 +98,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
               </div>))}</div>}
         {e.reveal.startsWith('zoom') && images.includes(i) && !dirty && <FocusPicker admin={admin} idx={i} value={e.reveal} onPick={(v) => edit(i, { reveal: v })} />}
         <input placeholder="해설 (정답 공개 때 보여요)" value={e.note} onChange={(ev) => edit(i, { note: ev.target.value })} />
+        <input placeholder="🎵 노래 퀴즈면 노래 검색어 (예: 쿨 해변의 여인) · 진행자 화면에만 보여요" value={e.media} onChange={(ev) => edit(i, { media: ev.target.value })} />
         <input placeholder="진행자 멘트 (문제 열 때 읽을 말, 선택)" value={e.host} onChange={(ev) => edit(i, { host: ev.target.value })} />
         <div className="qe-foot">
           <label>제한 시간 <select value={e.limit_sec} onChange={(ev) => edit(i, { limit_sec: +ev.target.value })}>

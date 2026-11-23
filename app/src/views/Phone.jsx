@@ -228,6 +228,7 @@ function Question({ view, me, act, busy }) {
     </div>
     <h1 className="title">{q.q}</h1>
     {poll && <p className="lead" style={{ marginTop: -8 }}>정답 없는 투표예요. 점수엔 영향 없어요.</p>}
+    {q.music && <div className="music"><span className="eq"><i /><i /><i /><i /></span>진행자가 노래를 틀어요. 잘 들어 보세요!</div>}
     {q.type === 'survey' && <p className="rule-hint"><Vote size={16} />다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
     {q.type === 'minority' && <p className="rule-hint"><Vote size={16} />소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
     <QImage q={q} left={left} />
@@ -260,8 +261,8 @@ function Dist({ view, me }) {
   return <div className="dist">
     {options(q).map(([label, k, bg], i) => {
       const n = view.dist?.[i] ?? 0, win = q.answer === i
-      return <div key={i} className={`dist-row ${q.answer != null && !win ? 'dim' : ''}`}>
-        <div className="dist-label"><span>{q.type !== 'ox' && <b className="num">{k}</b>} {label}{me.answer === i && <em>내 선택</em>}</span><b className="num">{n}명</b></div>
+      return <div key={i} className={`dist-row ${win ? 'win' : q.answer != null ? 'dim' : ''}`}>
+        <div className="dist-label"><span>{win && <Check size={18} className="win-check" />}{q.type !== 'ox' && <b className="num">{k}</b>} {label}{win && <strong className="win-tag">정답</strong>}{me.answer === i && <em>내 선택</em>}</span><b className="num">{n}명</b></div>
         <div className="dist-bar"><i style={{ width: `${(n / total) * 100}%`, background: bg }} /></div>
       </div>
     })}
@@ -303,7 +304,8 @@ function Result({ view, me }) {
       ? <div className="verdict none"><h2>투표 결과</h2></div>
       : <div className={`verdict ${none ? 'none' : ok ? 'ok' : 'no'}`}>
           <h2>{none ? '시간 초과' : ok ? '정답!' : '아쉽다'}</h2>
-          {!ok && q.answer != null && <p className="verdict-sub">정답 <b>{options(q)[q.answer][0]}</b>{!none && <> · 내 답 {options(q)[me.answer][0]}</>}</p>}
+          {q.answer != null && <div className="answer-pill"><Check size={20} />정답 <b>{options(q)[q.answer][0]}</b></div>}
+          {!ok && !none && q.answer != null && <p className="verdict-sub">내 답: {options(q)[me.answer][0]}</p>}
           <div className="gain num">{me.gain > 0 ? '+' : ''}{fmt(me.gain)}</div>
           {chips.length > 0 && <div className="chips">{chips.map(([icon, t], i) => <span key={i}>{icon}{t}</span>)}</div>}
         </div>}
