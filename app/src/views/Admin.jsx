@@ -143,7 +143,7 @@ export default function Admin() {
     {tab === 'questions' && <main className="tab-page">
       <header className="large-title"><small className="num">{view.total_q}문제</small><h1>문제</h1></header>
       <div className="group">
-        <button className="row-btn" disabled={!questions.length} onClick={() => openPreview(questions, 0)}><Smartphone size={20} /><span>참가자 화면으로 처음부터 넘겨 보기</span><ChevronRight size={18} /></button>
+        <button className="row-btn" disabled={!questions.length} onClick={() => openPreview(questions, 0)}><Smartphone size={20} /><span>전체 문제 점검<small>문제마다 참가자·진행자 화면, 사진, 노래 확인</small></span><ChevronRight size={18} /></button>
         <a className="row-btn" href={`${base}#/sim`} target="_blank" rel="noreferrer" onClick={() => { try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } }}>
           <PlayCircle size={20} /><span>실전처럼 혼자 풀어 보기 (경품까지)</span><ChevronRight size={18} /></a>
       </div>
@@ -190,7 +190,8 @@ export default function Admin() {
         <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)} aria-current={tab === k ? 'page' : undefined}><Icon size={24} /><span>{l}</span></button>))}
     </nav>
     {qr && <QrOverlay url={base} onClose={() => setQr(false)} />}
-    {preview && <PreviewModal list={preview.list} start={preview.idx} admin={admin} images={images} onClose={() => setPreview(null)} />}
+    {preview && <PreviewModal list={preview.list} start={preview.idx} admin={admin} images={images} audios={audios}
+      onClose={() => setPreview(null)} onSaved={refreshQuestions} />}
   </div>
 }
 
@@ -438,7 +439,13 @@ function AutoRehearsal({ admin, view, setMsg }) {
 }
 
 // 참가자 화면 미리보기: 실제 폰 화면과 같은 모양으로 문제·타이머·사진 연출을 재생한다. 점수나 서버 상태는 건드리지 않는다.
-function PreviewModal({ list, start, admin, images, onClose }) {
+function PreviewModal({ list, start, admin, images, audios = [], onClose, onSaved }) {
+  const [view, setView] = useState('player')   // player | host
+  const ckKey = 'hq-checked'
+  const sig = (x) => `${x.q}|${(x.opts ?? []).join(',')}|${x.answer}`
+  const [checked, setChecked] = useState(() => { try { return JSON.parse(localStorage.getItem(ckKey) ?? '[]') } catch { return [] } })
+  const toggleCheck = (k) => setChecked((c) => { const n = c.includes(k) ? c.filter((x) => x !== k) : [...c, k]; try { localStorage.setItem(ckKey, JSON.stringify(n)) } catch { /* noop */ } return n })
+  const doneCount = list.filter((x) => checked.includes(sig(x))).length
   const [idx, setIdx] = useState(start)
   const q = list[idx] ?? {}
   const hasImage = images.includes(idx)
@@ -459,16 +466,20 @@ function PreviewModal({ list, start, admin, images, onClose }) {
   return <div className="qr-overlay" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
     <div className="preview" onClick={(e) => e.stopPropagation()}>
       <div className="preview-bar">
-        <b className="num">참가자 화면 · {idx + 1} / {list.length}</b>
+        <b className="num">{idx + 1} / {list.length}번 · <span style={{ color: 'var(--soju)' }}>{doneCount}개 확인</span></b>
         <button aria-label="닫기" onClick={onClose}><Close size={20} /></button>
       </div>
-      <div className="phone preview-phone">
+      <div className="seg review-seg">
+        <button type="button" className={view === 'player' ? 'on' : ''} onClick={() => setView('player')}>참가자 화면</button>
+        <button type="button" className={view === 'host' ? 'on' : ''} onClick={() => setView('host')}>진행자 화면</button>
+      </div>
+      {view === 'host' && <HostReview q={q} idx={idx} hasImage={hasImage} img={img} hasAudio={audios.includes(idx)} admin={admin} onSaved={onSaved} />}
+      {view === 'player' && <div className="phone preview-phone">
         <div className="round">{q.round} · {idx + 1}번</div>
         {!reveal && <div className={`timer ${left <= 5 ? 'hurry' : ''}`}>
           <div className="bar"><i style={{ width: `${(left / limit) * 100}%` }} /></div><b className="num">{Math.ceil(left)}</b></div>}
         <h1 className="title">{q.q}</h1>
         {q.media && <div className="music"><span className="eq"><i /><i /><i /><i /></span>노래 퀴즈 · 진행자 폰에서 노래가 나와요</div>}
-        {q.media && parseYouTube(q.media) && <YTPlayer media={q.media} key={`p${idx}`} onSaveStart={(sec) => admin('set_media', { idx, media: withStart(q.media, sec) })} />}
         {q.type === 'survey' && <p className="rule-hint">다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'minority' && <p className="rule-hint">소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'poll' && <p className="lead">정답 없는 투표예요. 점수엔 영향 없어요.</p>}
@@ -483,11 +494,12 @@ function PreviewModal({ list, start, admin, images, onClose }) {
           })}
         </div>
         {reveal && q.note && <div className="panel note"><span>{q.note}</span></div>}
-      </div>
+      </div>}
       <div className="preview-actions">
         <button className="ghost" disabled={idx === 0} onClick={() => setIdx((v) => v - 1)} aria-label="이전 문제"><ChevronLeft size={18} style={{ verticalAlign: -3 }} /> 이전</button>
         <button className="ghost" onClick={() => setReveal((r) => !r)}>{reveal ? '문제 보기' : '정답 보기'}</button>
         <button className="ghost" onClick={() => { setReveal(false); setT0(Date.now()) }} aria-label="다시 재생"><RotateCw size={16} style={{ verticalAlign: -3 }} /></button>
+        <button className={`ghost ${checked.includes(sig(q)) ? 'checked' : ''}`} onClick={() => toggleCheck(sig(q))}><CheckCircle2 size={16} style={{ verticalAlign: -3 }} /> {checked.includes(sig(q)) ? '확인함' : '확인'}</button>
         <button className="go" disabled={idx >= list.length - 1} onClick={() => setIdx((v) => v + 1)} aria-label="다음 문제">다음 <ChevronRight size={18} style={{ verticalAlign: -3 }} /></button>
       </div>
     </div>
@@ -541,5 +553,28 @@ function LiveSong({ view, questions, audios, admin, onSaved }) {
   return <div className={idx === nxt ? 'song-next' : ''}>
     {idx === nxt && <p className="lead" style={{ fontSize: 15, margin: '0 0 6px' }}>다음 {idx + 1}번은 노래 문제예요. <b>광고 먼저 넘기기</b>를 눌러 두면 문제를 열 때 바로 노래가 나와요.</p>}
     <YTPlayer key={`yt${idx}`} media={media} onSaveStart={async (sec) => { await admin('set_media', { idx, media: withStart(media, sec) }); onSaved() }} />
+  </div>
+}
+
+// 점검 모드의 진행자 화면: 문제를 열었을 때 진행자가 보게 될 정보 전부(정답·멘트·해설·사진 원본·노래)
+function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved }) {
+  const label = q.answer != null && q.type ? options({ ...q, idx })[q.answer]?.[0] : q.type === 'survey' ? '공개할 때 결정 (가장 많이 고른 답)' : q.type === 'minority' ? '공개할 때 결정 (가장 적게 고른 답)' : '정답 없음 (투표)'
+  const typeKo = { mc: '4지선다', ox: 'O/X', poll: '투표', survey: '다수결', minority: '소수결' }[q.type] ?? q.type
+  const revealKo = { zoom: '확대 → 점점 작게', blur: '흐림 → 선명', pixel: '모자이크 → 선명', silhouette: '흑백 윤곽 → 원본' }[String(q.reveal ?? '').split('@')[0]]
+  const problems = []
+  if (q.reveal && !hasImage) problems.push('사진 연출 문제인데 사진이 없어요')
+  if ((q.opts ?? []).some((o) => /^\(이름 \d\)$/.test(String(o).trim()))) problems.push("보기에 '(이름 1)' 같은 자리 표시가 남아 있어요")
+  if (!q.note) problems.push('해설이 비어 있어요 (정답 공개 때 할 말이 없어요)')
+  return <div className="phone preview-phone host-review">
+    <div className="round">{q.round} · {idx + 1}번 · {typeKo} · {q.limit_sec ?? 15}초{q.is_bet ? ' · 올인 베팅' : ''}</div>
+    <h1 className="title" style={{ fontSize: 24 }}>{q.q}</h1>
+    {problems.map((p) => <div key={p} className="warn"><AlertTriangle size={16} />{p}</div>)}
+    <div className="host-say"><Mic size={18} /><p>{q.host || `${idx + 1}번 문제! ${q.limit_sec ?? 15}초 드립니다. 빨리 누를수록 점수가 높아요!`}</p></div>
+    <div className="host-ans"><Eye size={16} />정답 <b>{label}</b></div>
+    {q.note && <div className="panel note"><span>해설 · {q.note}</span></div>}
+    {hasImage && <div className="review-img">{img ? <img src={img} alt="사진 원본" /> : <span className="lead">사진 불러오는 중…</span>}<small>사진 원본 · 연출: {revealKo ?? '그대로'}</small></div>}
+    {hasAudio && <ClipPlayer admin={admin} idx={idx} key={`rc${idx}`} />}
+    {!hasAudio && q.media && parseYouTube(q.media) && <YTPlayer media={q.media} key={`ry${idx}`} onSaveStart={async (sec) => { await admin('set_media', { idx, media: withStart(q.media, sec) }); onSaved?.() }} />}
+    {!hasAudio && q.media && !parseYouTube(q.media) && <div className="warn"><AlertTriangle size={16} />노래 검색어만 있어요 ("{q.media}") · 유튜브 링크나 음원을 넣으면 바로 재생돼요</div>}
   </div>
 }
