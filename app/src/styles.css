@@ -342,7 +342,7 @@ svg { flex-shrink: 0; }
 .sheet { width: min(100%, 460px); max-height: 80dvh; background: var(--ink-2); border-radius: 20px 20px 0 0; display: flex; flex-direction: column; animation: rise 0.3s var(--ease); padding-bottom: env(safe-area-inset-bottom); }
 .sheet-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 17px; }
 .sheet-head button { width: 36px; height: 36px; border-radius: 50%; background: var(--ink-3); display: grid; place-items: center; }
-.sheet-list { overflow: auto; padding: 4px 16px 16px; }
+.sheet-list { overflow: auto; min-height: 0; padding: 4px 16px 16px; }
 .roster-row { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 17px; }
 .roster-row b { color: var(--mute); } .roster-row small { color: var(--mute); font-size: 16px; }
 .roster-row.me { color: var(--beer); font-weight: 800; } .roster-row.me b, .roster-row.me small { color: var(--beer); }
@@ -405,7 +405,7 @@ svg { flex-shrink: 0; }
 .as-row svg { color: var(--beer); }
 .large-title.with-action { display: flex; justify-content: space-between; align-items: flex-end; }
 .more-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--ink-2); display: grid; place-items: center; color: var(--beer); }
-.page-sheet { max-height: 88dvh; } .page-sheet .sheet-list { padding: 12px 14px 20px; display: grid; gap: 12px; }
+.page-sheet { max-height: 88dvh; } .page-sheet .sheet-list { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; align-content: start; grid-auto-rows: max-content; padding: 12px 14px 20px; display: grid; gap: 12px; }
 .notice { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 10px 12px; font-size: 15px; }
 .notice span { flex: 1; } .notice button { padding: 6px 10px; border-radius: 8px; font-weight: 800; font-size: 14px; }
 .notice.bad { background: rgb(255 90 95 / 0.14); color: #ffc2c4; } .notice.bad button { background: rgb(255 90 95 / 0.25); }
@@ -487,3 +487,4 @@ svg { flex-shrink: 0; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 .confirm-layer { z-index: 40; }
+.preview-layer { z-index: 35; }

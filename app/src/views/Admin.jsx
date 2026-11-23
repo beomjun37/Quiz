@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
@@ -8,7 +8,7 @@ import { ask, ConfirmHost } from '../lib/confirm'
 import YTPlayer, { withStart } from '../lib/ytplayer'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube } from '../lib/ui'
+import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube, isCorrect } from '../lib/ui'
 
 const savePin = (p) => { try { localStorage.setItem('hq-pin', p) } catch { /* noop */ } }
 
@@ -19,6 +19,7 @@ export default function Admin() {
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
   const [retry, setRetry] = useState(null)
+  const [accept, setAccept] = useState(false)
   const { view, refetch } = useView(null, 2000)
   useWakeLock()
   const [qr, setQr] = useState(false)
@@ -128,6 +129,29 @@ export default function Admin() {
           <SkipForward size={20} /><span>이 문제 건너뛰기<small>점수 없이 바로 다음 문제로</small></span><ChevronRight size={18} /></button>
         <button className="row-btn" disabled={busy} onClick={async () => (await ask('이 문제를 취소할까요?\n낸 답은 지워지고, 문제를 열기 전으로 돌아가요. (다시 열 수 있어요)', { ok: '문제 취소', danger: true })) && run('back', { from_phase: 'q', from_qi: view.qi })}>
           <XCircle size={20} /><span>이 문제 취소<small>열기 전으로 돌아가기 · 다시 열 수 있어요</small></span><ChevronRight size={18} /></button>
+      </div>}
+      {['q', 'answer'].includes(view.phase) && view.question && <>
+        <p className="group-label">문제에 오류가 있으면</p>
+        <div className="group">
+          <button className="row-btn" disabled={busy} onClick={async () => {
+            if (!(await ask(`이 문제를 다른 문제로 바꿀까요?\n이 문제의 답과 점수는 없던 일이 되고, 같은 영역의 새 문제가 ${view.qi + 1}번 자리에서 바로 시작돼요.`, { ok: '문제 교체' }))) return
+            const r = await admin('replace', { from_phase: view.phase, from_qi: view.qi }).catch(() => null)
+            if (r && !r.skipped) setMsg(r.same_cat ? '같은 영역의 새 문제로 바꿨어요' : `같은 영역에 남은 문제가 없어서 '${r.cat}' 문제로 바꿨어요`)
+          }}>
+            <Shuffle size={20} /><span>이 문제 교체<small>무효 처리 · 같은 영역의 다른 문제로 다시 시작</small></span><ChevronRight size={18} /></button>
+          {view.phase === 'answer' && ['ox', 'mc'].includes(view.question.type) && <button className="row-btn" disabled={busy} onClick={() => setAccept(true)}>
+            <CheckCheck size={20} /><span>정답 추가 인정<small>이 보기도 정답으로 · 점수를 다시 매겨요</small></span><ChevronRight size={18} /></button>}
+        </div>
+      </>}
+      {accept && view.phase === 'answer' && view.question && <div className="sheet-bg" onClick={() => setAccept(false)}>
+        <div className="action-sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="as-group">
+            <p className="as-msg"><b>어느 보기를 정답으로 더 인정할까요?</b><br />고른 사람도 맞힌 걸로 점수를 다시 매겨요.</p>
+            {options(view.question).map(([label], i) => isCorrect(view.question, i) ? null
+              : <button key={i} className="as-btn" onClick={async () => { setAccept(false); const r = await admin('accept', { choice: i }).catch(() => null); if (r) setMsg(`'${label}'도 정답으로 인정했어요`) }}>{label} <small className="num">{view.dist?.[i] ?? 0}명</small></button>)}
+          </div>
+          <button className="as-btn as-cancel" onClick={() => setAccept(false)}>취소</button>
+        </div>
       </div>}
       {view.phase !== 'lobby' && view.phase !== 'q' && <div className="group"><button className="row-btn" disabled={busy} onClick={undo}><Undo2 size={20} /><span>한 단계 되돌리기<small>잘못 눌렀을 때만</small></span><ChevronRight size={18} /></button></div>}
       {view.phase !== 'lobby' && <>
@@ -253,7 +277,7 @@ function HostCard({ view, admin, audios = [], onPreview }) {
   const label = (qq, a) => (a != null ? options(qq)[a]?.[0] : qq.type === 'survey' ? '공개할 때 결정 (가장 많이 고른 답)' : qq.type === 'minority' ? '공개할 때 결정 (가장 적게 고른 답)' : '정답 없음 (투표)')
   const top = view.ranking
   const nx = cur?.next
-  const correct = q && view.dist && q.answer != null ? view.dist[q.answer] : null
+  const correct = q && view.dist && q.answer != null ? view.dist.reduce((a, n, i) => a + (isCorrect(q, i) ? n : 0), 0) : null
 
   let say
   switch (view.phase) {
@@ -267,7 +291,7 @@ function HostCard({ view, admin, audios = [], onPreview }) {
       say = q.type === 'poll'
         ? `투표 결과 나왔습니다! 1등은 '${options(q)[view.dist.indexOf(Math.max(...view.dist))][0]}'! ${q.note || ''}`
         : q.answer == null ? '아무도 답을 안 냈네요! 이번 문제는 점수 없이 넘어갑니다.'
-        : `정답은 '${label(q, q.answer)}'! ${correct}명이 맞혔습니다. ${trapText(q, view.dist)}${q.note || ''} 지금 1등은 ${top[0]?.name ?? '-'}님!`
+        : `정답은 '${[q.answer, ...(q.alt ?? [])].map((i) => label(q, i)).join("', '")}'! ${correct}명이 맞혔습니다. ${trapText(q, view.dist)}${q.note || ''} 지금 1등은 ${top[0]?.name ?? '-'}님!`
       break
     case 'bet':
       say = '마지막 문제 전에 베팅 시간입니다! 지금 내 점수를 0%, 50%, 100% 중에 걸 수 있어요. 맞히면 건 만큼 더 받고, 틀리면 건 만큼 잃습니다. 하위권은 올인하면 역전도 가능합니다!'
@@ -492,7 +516,7 @@ function PreviewModal({ list, start, admin, images, audios = [], bank = false, o
   const pq = { ...q, idx, has_image: hasImage, limit_sec: limit }
   const opts = q.type ? options(pq) : []
   const ox = q.type === 'ox'
-  return <div className="qr-overlay" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
+  return <div className="qr-overlay preview-layer" onClick={onClose} role="dialog" aria-label="참가자 화면 미리보기">
     <div className="preview" onClick={(e) => e.stopPropagation()}>
       <div className="preview-bar">
         <b className="num">{idx + 1} / {list.length}번 · <span style={{ color: 'var(--soju)' }}>{doneCount}개 확인</span></b>

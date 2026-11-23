@@ -143,7 +143,7 @@ begin
       'bet', (select pct from hq_bets b where b.player_id = p.id),
       'won', p.won, 'max_streak', p.max_streak,
       'correct', (select count(*) from hq_answers a join hq_questions qq on qq.idx = a.qi
-                  where a.player_id = p.id and qq.type <> 'poll' and a.choice = qq.answer and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
+                  where a.player_id = p.id and qq.type <> 'poll' and (a.choice = qq.answer or qq.alt @> to_jsonb(a.choice)) and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
       'rank', (select count(*) + 1 from hq_players o where o.score > p.score))
     into me from hq_players p where p.id = p_player;
   end if;
@@ -165,6 +165,7 @@ begin
         'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
         'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal, 'music', q.media <> '' or exists (select 1 from hq_audio where idx = q.idx),
         'answer', case when revealed then q.answer end,
+        'alt', case when revealed then q.alt end,
         'note', case when revealed then q.note end) end,
     'submitted', (select count(*) from hq_answers a where a.qi = s.qi and a.at <= now()),
     'dist', case when revealed then (
@@ -306,6 +307,60 @@ begin
       perform hq_open_q();
     end if;
 
+  elsif p_action = 'accept' then                    -- 정답 추가 인정: 공개 후 '이 보기도 정답'으로 인정하고 점수를 다시 매긴다
+    if s.phase <> 'answer' then raise exception 'NOT_REVEALED'; end if;
+    select * into nq from hq_questions where idx = s.qi;
+    if nq.type not in ('ox', 'mc') then raise exception 'NO_ANSWER_TYPE'; end if;
+    i := (p_arg->>'choice')::int;
+    if i is null or i < 0 or i >= hq_nopts(nq) then raise exception 'BAD_CHOICE'; end if;
+    if i = nq.answer or nq.alt @> to_jsonb(i) then return jsonb_build_object('ok', true, 'skipped', true); end if;
+    -- 공개 직전 점수로 되돌린 뒤 같은 마감 기준으로 다시 채점한다
+    update hq_players set score = prev_score, streak = prev_streak, max_streak = prev_max_streak,
+      active = prev_active, last_gain = 0, last_bonus = '{}' where true;
+    update hq_questions set alt = alt || to_jsonb(i) where idx = s.qi;
+    perform hq_reveal();
+
+  elsif p_action = 'replace' then                   -- 문제 교체: 이 문제를 무효로 하고 같은 영역의 다른 은행 문제를 같은 자리에 넣어 다시 연다
+    if p_arg ? 'from_phase' and (p_arg->>'from_phase' <> s.phase or (p_arg->>'from_qi')::int <> s.qi) then
+      return jsonb_build_object('ok', true, 'skipped', true);
+    end if;
+    if s.phase not in ('q', 'answer') then raise exception 'NOT_OPEN'; end if;
+    select * into nq from hq_questions where idx = s.qi;
+    if s.phase = 'answer' then                      -- 공개된 점수는 되돌린다
+      update hq_players set score = prev_score, streak = prev_streak, max_streak = prev_max_streak,
+        active = prev_active, last_gain = 0, last_bonus = '{}' where true;
+    end if;
+    delete from hq_answers where qi = s.qi;
+    delete from hq_reactions where qi = s.qi;
+    update hq_players set card = null, card_qi = null, card_hide = null where card_qi = s.qi;
+    -- 원래 문제의 영역: 은행에서 온 문제면 그 카테고리, 아니면 회차 이름으로 짐작
+    c_cat := (select cat from hq_bank where q = nq.q and media = nq.media limit 1);
+    update hq_bank set flagged = true where q = nq.q and media = nq.media;
+    if c_cat is null then
+      c_cat := case when nq.is_bet then '베팅' else (select v.cat from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
+        ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'),
+        ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) where v.r = nq.round) end;
+    end if;
+    -- 같은 영역 → (없으면) 아무 영역. 이미 세트에 있는 문제·주제, 교체된 문제는 뺀다. 사진 없이 돌아가는 문제만.
+    select b.id, b.cat into n, c_round from hq_bank b
+      where not b.flagged and (b.cat = '베팅') = nq.is_bet
+        and not exists (select 1 from hq_questions x where x.q = b.q and x.media = b.media)
+      order by (b.cat = coalesce(c_cat, '')) desc, b.used, random() limit 1;
+    if n is null then raise exception 'NO_SPARE'; end if;
+    delete from hq_images where idx = s.qi;
+    delete from hq_audio where idx = s.qi;
+    update hq_questions q set type = b.type, q = b.q, opts = b.opts, answer = b.answer, note = b.note, host = b.host, media = b.media,
+        alt = '[]', reveal = '', pinned = false, limit_sec = case when b.media <> '' then 25 else 15 end,
+        round = case when b.cat = coalesce(c_cat, '') then q.round else coalesce((select v.r from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
+          ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'),
+          ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('베팅', '올인 베팅')) v(cat, r) where v.cat = b.cat), q.round) end
+      from hq_bank b where b.id = n and q.idx = s.qi;
+    update hq_bank set used = used + 1 where id = n;
+    -- 같은 번호로 새로 연다(시간도 새로)
+    update hq_state set qi = qi - 1 where id = 1;
+    perform hq_open_q();
+    return jsonb_build_object('ok', true, 'same_cat', coalesce(c_round = c_cat, false), 'cat', c_round);
+
   elsif p_action = 'goto' then                      -- 연습용: 원하는 문제로 바로 이동(그 문제부터 답안·카드를 지우고 새로 연다)
     n := least(greatest((p_arg->>'qi')::int, 0), (select count(*) from hq_questions) - 1);
     delete from hq_answers where qi >= n;
@@ -391,12 +446,12 @@ begin
 
   elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
     return jsonb_build_object(
-      'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'note', note, 'host', host, 'media', media) from hq_questions where idx = s.qi),
+      'now', (select jsonb_build_object('idx', idx, 'answer', answer, 'alt', alt, 'note', note, 'host', host, 'media', media) from hq_questions where idx = s.qi),
       'next', (select jsonb_build_object('idx', idx, 'q', q, 'type', type, 'opts', opts, 'answer', answer, 'host', host, 'is_bet', is_bet,
                'round', round, 'note', note, 'limit_sec', limit_sec, 'media', media,
                'reveal', reveal, 'has_image', exists (select 1 from hq_images i where i.idx = hq_questions.idx))
                from hq_questions where idx = s.qi + 1),
-      'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and a.choice = q.answer and a.at <= now()));
+      'correct', (select count(*) from hq_answers a join hq_questions q on q.idx = a.qi where a.qi = s.qi and (a.choice = q.answer or q.alt @> to_jsonb(a.choice)) and a.at <= now()));
 
   elsif p_action = 'bank_stats' then                -- 문제 은행 현황: 카테고리 × 난이도 개수
     return (select coalesce(jsonb_object_agg(cat, x), '{}') from (
@@ -441,7 +496,7 @@ begin
       select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, case when u.media <> '' then 25 else 15 end, '', false, u.id, nullif(u.topic, ''), u.media
       from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
             from hq_bank b0
-            where b0.cat = c_cat and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
+            where b0.cat = c_cat and not b0.flagged and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
               and (b0.topic = '' or b0.topic not in (select topic from _pick where topic is not null))
             order by case when b0.topic = '' then b0.id::text else b0.topic end, b0.used, random()) u
       order by u.used, random()
@@ -453,7 +508,7 @@ begin
     if coalesce((p_arg->>'bet')::boolean, true) then
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
         select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
-        from hq_bank where cat = '베팅' and (topic = '' or topic not in (select topic from _pick where topic is not null))
+        from hq_bank where cat = '베팅' and not flagged and (topic = '' or topic not in (select topic from _pick where topic is not null))
         order by used, random() limit 1;
     end if;
     if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
@@ -562,8 +617,8 @@ begin
       from (
         select p2.id, p2.card, p2.card_qi, p2.prev_rank, p2.streak,
                a.player_id is not null as answered,
-               coalesce(a.choice = q.answer, false) as correct,
-               hq_points(a.choice = q.answer, s.q_started_at, a.at, q.limit_sec) as base,
+               coalesce(a.choice = q.answer or q.alt @> to_jsonb(a.choice), false) as correct,
+               hq_points(a.choice = q.answer or q.alt @> to_jsonb(a.choice), s.q_started_at, a.at, q.limit_sec) as base,
                case when q.is_bet then round(greatest(p2.score, 0) * coalesce(b.pct, 0) / 100.0)::int else 0 end as stake
         from hq_players p2
         left join hq_answers a on a.player_id = p2.id and a.qi = s.qi
