@@ -369,6 +369,8 @@ svg { flex-shrink: 0; }
 .song-row .music-btn { flex: 1; border: 0; text-align: left; }
 .song-len { flex: 0 0 auto; align-self: center; } .song-len button { white-space: nowrap; padding: 8px 10px; }
 .song-alt { color: var(--mute); font-size: 14px; text-align: center; }
+.audio-pick { display: inline-flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.audio-start { display: inline-flex; gap: 4px; align-items: center; font-size: 14px; } .host-app .audio-start input { width: 64px !important; padding: 6px 8px !important; margin: 0 !important; }
 .howto { display: grid; gap: 10px; }
 .howto h3 { margin: 0; font-size: 17px; color: var(--mute); }
 .howto ol { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 18px; }

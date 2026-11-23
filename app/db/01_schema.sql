@@ -126,6 +126,10 @@ alter table hq_bank add column if not exists media text not null default '';
 alter table hq_bank drop constraint if exists hq_bank_q_key;
 create unique index if not exists hq_bank_q_media on hq_bank (q, media);
 
+-- 노래 음원 조각(진행자가 자기 폰에서 올린 20초 클립, WAV data URL). 진행자 PIN 으로만 꺼낼 수 있다.
+create table if not exists hq_audio (idx int primary key, data text not null);
+alter table hq_audio enable row level security;
+
 -- 정답 공개 되돌리기용 스냅샷
 alter table hq_players add column if not exists prev_streak int not null default 0;
 alter table hq_players add column if not exists prev_max_streak int not null default 0;
