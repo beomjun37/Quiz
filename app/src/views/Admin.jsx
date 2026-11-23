@@ -448,7 +448,8 @@ function PreviewModal({ list, start, admin, images, onClose }) {
         {!reveal && <div className={`timer ${left <= 5 ? 'hurry' : ''}`}>
           <div className="bar"><i style={{ width: `${(left / limit) * 100}%` }} /></div><b className="num">{Math.ceil(left)}</b></div>}
         <h1 className="title">{q.q}</h1>
-        {q.media && <div className="music"><span className="eq"><i /><i /><i /><i /></span>노래 퀴즈 · 진행자가 "{q.media}"를 틀어요</div>}
+        {q.media && <div className="music"><span className="eq"><i /><i /><i /><i /></span>노래 퀴즈 · 진행자 폰에서 노래가 나와요</div>}
+        {q.media && parseYouTube(q.media) && <SongPlayer media={q.media} key={`p${idx}`} />}
         {q.type === 'survey' && <p className="rule-hint">다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'minority' && <p className="rule-hint">소수결! 가장 적은 사람이 고른 답이 정답이에요</p>}
         {q.type === 'poll' && <p className="lead">정답 없는 투표예요. 점수엔 영향 없어요.</p>}
@@ -488,5 +489,6 @@ function SongPlayer({ media }) {
       <button className="music-btn" onClick={() => setPlay((n) => n + 1)}><Music size={22} /><span>{play ? '다시 듣기' : '노래 바로 재생'}<small>{yt.start >= 60 ? `${Math.floor(yt.start / 60)}분 ${yt.start % 60}초부터 ` : yt.start ? `${yt.start}초부터 ` : '처음부터 '}{len}초 재생</small></span></button>
       <div className="seg song-len">{[10, 15, 30].map((n) => <button key={n} type="button" className={len === n ? 'on' : ''} onClick={() => setLen(n)}>{n}초</button>)}</div>
     </div>
+    <a className="song-alt" href={`https://www.youtube.com/watch?v=${yt.id}${yt.start ? `&t=${yt.start}s` : ''}`} target="_blank" rel="noreferrer">영상이 안 나오면 유튜브 앱에서 열기</a>
   </div>
 }
