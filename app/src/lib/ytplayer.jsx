@@ -22,7 +22,7 @@ const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(
  * - 재생: 시작 지점부터 len 초 재생 후 자동 정지
  * - 시작 지점 맞추기: 재생하며 ±5초로 후렴을 찾고 "여기부터 시작"으로 저장(onSaveStart)
  */
-export default function YTPlayer({ media, len = 15, onSaveStart, compact = false }) {
+export default function YTPlayer({ media, len = 15, onSaveStart, compact = false, title = '' }) {
   const yt = parseYouTube(media)
   const box = useRef(null), player = useRef(null), stopAt = useRef(null)
   const [state, setState] = useState('idle')   // idle | preparing | ready | playing
@@ -50,6 +50,8 @@ export default function YTPlayer({ media, len = 15, onSaveStart, compact = false
         videoId: yt.id, width: '100%', height: '100%',
         playerVars: { playsinline: 1, rel: 0, modestbranding: 1, start },
         events: {
+          // 100 삭제·비공개, 101/150 퍼가기 금지, 2/5 잘못된 링크·재생 오류
+          onError: () => setState('error'),
           onReady: (e) => { if (muted) e.target.mute(); resolve(e.target) },
           onStateChange: (e) => {
             // 준비 중: 광고가 끝나고 본 영상이 재생되기 시작하면 시작 지점에서 멈춰 둔다
@@ -69,6 +71,11 @@ export default function YTPlayer({ media, len = 15, onSaveStart, compact = false
   function nudge(d) { const p = player.current; if (!p) return; const t = Math.max(0, (p.getCurrentTime() || 0) + d); p.seekTo(t, true); if (stopAt.current != null) stopAt.current = t + len }
   function setHere() { const t = Math.floor(player.current?.getCurrentTime?.() || 0); setStart(t); setSaved(false) }
 
+  const search = `https://www.youtube.com/results?search_query=${encodeURIComponent((title.replace(/[「」()0-9]/g, ' ') || '') + ' 노래')}`
+  if (state === 'error') return <div className="song">
+    <div className="notice bad"><span>이 영상은 재생할 수 없어요(비공개·삭제·퍼가기 금지). 유튜브에서 같은 노래를 찾아 틀거나, 문제를 건너뛰어 주세요.</span></div>
+    <a className="song-alt" href={search} target="_blank" rel="noreferrer">유튜브에서 이 노래 검색</a>
+  </div>
   return <div className="song">
     <div className="song-frame"><div ref={box} /></div>
     <div className="song-row">
