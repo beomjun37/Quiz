@@ -368,6 +368,7 @@ svg { flex-shrink: 0; }
 .song-row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
 .song-row .music-btn { flex: 1; border: 0; text-align: left; }
 .song-len { flex: 0 0 auto; align-self: center; } .song-len button { white-space: nowrap; padding: 8px 10px; }
+.song-alt { color: var(--mute); font-size: 14px; text-align: center; }
 .howto { display: grid; gap: 10px; }
 .howto h3 { margin: 0; font-size: 17px; color: var(--mute); }
 .howto ol { margin: 0; padding-left: 22px; display: grid; gap: 6px; font-size: 18px; }
