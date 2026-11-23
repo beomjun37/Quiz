@@ -115,9 +115,11 @@ export default function Admin() {
           }}><RotateCcw size={20} /><span>완전히 새로 (모두 다시 입장)<small>참가자·점수 모두 지우기</small></span></button>
         </div>
       </>}
-      {view.ranking.length > 0 && <details className="group rank-fold"><summary>지금 순위 TOP 10</summary>
-        {view.ranking.map((p) => <div key={p.name} className="mini num"><b>{p.rank}</b><span>{p.name}</span><span>{fmt(p.score)}</span></div>)}
-      </details>}
+      <details className="group rank-fold" open={view.phase === 'lobby' || ['final', 'draw', 'end'].includes(view.phase)}>
+        <summary><Users size={18} />참가자 {view.players}명{view.humans != null && view.humans !== view.players ? ` (실제 ${view.humans} · 가상 ${view.players - view.humans})` : ''} · {view.phase === 'lobby' ? '명단' : '순위'}</summary>
+        {(view.roster ?? []).map((p, i) => <div key={p.name} className="mini num"><b>{view.phase === 'lobby' ? i + 1 : p.rank}</b><span>{p.name}{p.bot && <em className="bot">가상</em>}</span><span>{view.phase === 'lobby' ? '' : fmt(p.score)}</span></div>)}
+        {!view.players && <p className="lead" style={{ padding: '0 16px 14px', margin: 0 }}>아직 아무도 안 들어왔어요</p>}
+      </details>
     </main>}
 
     {tab === 'questions' && <main className="tab-page">

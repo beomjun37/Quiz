@@ -153,6 +153,11 @@ begin
     'next_is_bet', coalesce(nq.is_bet, false),
     'players', (select count(*) from hq_players),
     'humans', (select count(*) from hq_players where not is_bot),
+    -- 전체 참가자 명단(순위 포함): 들어온 순서가 아니라 점수 순, 같은 점수는 먼저 들어온 사람이 위
+    'roster', (select coalesce(jsonb_agg(x order by x.score desc, x.created_at), '[]') from (
+        select name, score, is_bot as bot, id = p_player as is_me, created_at,
+               rank() over (order by score desc)::int as rank
+        from hq_players) x),
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
         'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
