@@ -275,7 +275,7 @@ begin
       -- 정답 공개 취소: 점수·연속 기록을 공개 직전으로 되돌리고 다시 '문제 푸는 중'으로
       update hq_players set score = prev_score, streak = prev_streak, max_streak = prev_max_streak,
         active = prev_active, last_gain = 0, last_bonus = '{}' where true;
-      update hq_questions set answer = null where idx = s.qi and type in ('survey', 'minority');
+      update hq_questions set answer = null, alt = '[]' where idx = s.qi and type in ('survey', 'minority');
       delete from hq_reactions where qi = s.qi;
       update hq_state set phase = 'q', q_started_at = now(), updated_at = now() where id = 1;  -- 다시 풀 수 있게 시간도 새로
     elsif s.phase = 'bet' then
@@ -434,14 +434,14 @@ begin
       streak = 0, max_streak = 0, last_bonus = '{}', card = null, card_qi = null, card_hide = null where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
     update hq_draw set winner_ids = '{}' where id = 1;
-    update hq_questions set answer = null where type in ('survey', 'minority');  -- 지난 판에 정해진 다수결·소수결 정답 지우기
+    update hq_questions set answer = null, alt = '[]' where type in ('survey', 'minority');  -- 지난 판에 정해진 다수결·소수결 정답 지우기
     delete from hq_reactions where true;
 
   elsif p_action = 'reset' then                     -- 새 게임 / 행사 후 개인정보 삭제
     delete from hq_answers where true; delete from hq_bets where true; delete from hq_reactions where true; delete from hq_players where true;
     update hq_state set phase = 'lobby', qi = -1, q_started_at = null, winner_ids = '{}', drawn_at = null, updated_at = now() where id = 1;
     update hq_draw set winner_ids = '{}' where id = 1;
-    update hq_questions set answer = null where type in ('survey', 'minority');  -- 지난 판에 정해진 다수결·소수결 정답 지우기
+    update hq_questions set answer = null, alt = '[]' where type in ('survey', 'minority');  -- 지난 판에 정해진 다수결·소수결 정답 지우기
     delete from hq_reactions where true;
 
   elsif p_action = 'current' then                   -- 진행자 전용: 지금 문제와 다음 문제의 정답·해설·멘트 (참가자에겐 공개 전까지 안 내려간다)
@@ -585,9 +585,12 @@ begin
 
   -- 다수결: 가장 많이 고른 보기가 정답 / 소수결: (한 명 이상 고른 보기 중) 가장 적게 고른 보기가 정답
   if q.type in ('survey', 'minority') then
-    select choice into q.answer from hq_answers where qi = s.qi group by choice
-    order by case when q.type = 'survey' then -count(*) else count(*) end, random() limit 1;
-    update hq_questions set answer = q.answer where idx = s.qi;
+    -- 동률이면 같은 수를 받은 보기를 전부 정답으로 인정한다(하나를 무작위로 고르면 억울한 사람이 생긴다)
+    with c as (select choice, count(*) n from hq_answers where qi = s.qi and at <= now() group by choice),
+         best as (select case when q.type = 'survey' then max(n) else min(n) end m from c)
+    select min(choice), coalesce(jsonb_agg(choice order by choice) filter (where choice > (select min(choice) from c, best where c.n = best.m)), '[]')
+      into q.answer, q.alt from c, best where c.n = best.m;
+    update hq_questions set answer = q.answer, alt = coalesce(q.alt, '[]') where idx = s.qi;
     if q.answer is null then  -- 아무도 안 냈으면 채점(연속 정답·베팅 포함)을 건너뛴다
       update hq_players set last_gain = 0 where true;
       update hq_state set phase = 'answer', updated_at = now() where id = 1;
