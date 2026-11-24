@@ -153,6 +153,12 @@ alter table hq_questions add column if not exists alt jsonb not null default '[]
 -- 현장에서 '문제 교체'된 은행 문제: 다음 랜덤 뽑기에서 빼고 점검 화면에서 모아 본다
 alter table hq_bank add column if not exists flagged boolean not null default false;
 
+-- 문제 묶음: boss(부장님 회식용) | peer(94~00년생 동기 송년회용) | all(둘 다)
+alter table hq_bank add column if not exists pack text not null default 'boss';
+alter table hq_bank drop constraint if exists hq_bank_pack_check;
+alter table hq_bank add constraint hq_bank_pack_check check (pack in ('boss', 'peer', 'all'));
+alter table hq_state add column if not exists pack text not null default 'boss';  -- 지금 세트를 뽑은 묶음(문제 교체 때 같은 묶음에서 고른다)
+
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
