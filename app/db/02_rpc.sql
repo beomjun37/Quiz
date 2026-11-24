@@ -339,11 +339,12 @@ begin
     if c_cat is null then
       c_cat := case when nq.is_bet then '베팅' else (select v.cat from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
         ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'),
-        ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) where v.r = nq.round) end;
+        ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억')) v(cat, r) where v.r = nq.round) end;
     end if;
     -- 같은 영역 → (없으면) 아무 영역. 이미 세트에 있는 문제·주제, 교체된 문제는 뺀다. 사진 없이 돌아가는 문제만.
     select b.id, b.cat into n, c_round from hq_bank b
       where not b.flagged and (b.cat = '베팅') = nq.is_bet
+        and b.pack in (s.pack, 'all')
         and not exists (select 1 from hq_questions x where x.q = b.q and x.media = b.media)
       order by (b.cat = coalesce(c_cat, '')) desc, b.used, random() limit 1;
     if n is null then raise exception 'NO_SPARE'; end if;
@@ -353,7 +354,7 @@ begin
         alt = '[]', reveal = '', pinned = false, limit_sec = case when b.media <> '' then 25 else 15 end,
         round = case when b.cat = coalesce(c_cat, '') then q.round else coalesce((select v.r from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
           ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'),
-          ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('베팅', '올인 베팅')) v(cat, r) where v.cat = b.cat), q.round) end
+          ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('베팅', '올인 베팅')) v(cat, r) where v.cat = b.cat), q.round) end
       from hq_bank b where b.id = n and q.idx = s.qi;
     update hq_bank set used = used + 1 where id = n;
     -- 같은 번호로 새로 연다(시간도 새로)
@@ -456,12 +457,12 @@ begin
   elsif p_action = 'bank_stats' then                -- 문제 은행 현황: 카테고리 × 난이도 개수
     return (select coalesce(jsonb_object_agg(cat, x), '{}') from (
       select cat, jsonb_build_object('1', count(*) filter (where diff = 1), '2', count(*) filter (where diff = 2),
-                                     '3', count(*) filter (where diff = 3)) x from hq_bank group by cat) z);
+                                     '3', count(*) filter (where diff = 3)) x from hq_bank where (coalesce(p_arg->>'pack', '') = '' or pack in (p_arg->>'pack', 'all')) group by cat) z);
 
   elsif p_action = 'bank_list' then                 -- 문제 은행 둘러보기: 카테고리별 전체 문제
     return (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'cat', cat, 'diff', diff, 'type', type, 'q', q, 'opts', opts,
               'answer', answer, 'note', note, 'host', host, 'media', media, 'used', used) order by diff, id), '[]')
-            from hq_bank where cat = p_arg->>'cat');
+            from hq_bank where cat = p_arg->>'cat' and (coalesce(p_arg->>'pack', '') = '' or pack in (p_arg->>'pack', 'all')));
 
   elsif p_action = 'bank_add' then                  -- 은행 문제를 지금 세트에 넣기(베팅 문제 앞, 고정). 대기 단계에서만
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
@@ -473,7 +474,7 @@ begin
     insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
       select n, (case cat when '추억' then '추억 소환' when '가요' then '추억의 가요' when '노래' then '노래 퀴즈' when '요즘 말' then '요즘 말 테스트'
                  when '예능' then '예능·드라마 소환' when '회사' then '회사 생활' when '상식' then '상식 퀴즈' when '다수결' then '100명에게 물었습니다'
-                 when '소수결' then '소수가 이긴다' when '이모지' then '이모지 퀴즈' else '올인 베팅' end),
+                 when '소수결' then '소수가 이긴다' when '이모지' then '이모지 퀴즈' when '학창시절' then '학창 시절 소환' when '게임' then '게임·인터넷 추억' else '올인 베팅' end),
              type, q, opts, answer, note, false, case when media <> '' then 25 else 15 end, host, '', true, media
       from hq_bank where id = (p_arg->>'id')::int;
     update hq_questions set idx = idx - 999 where idx >= 1000;
@@ -491,12 +492,12 @@ begin
     -- 순서도 흐름을 고려: 몸풀기(추억) → 다수결 → 요즘 말 → 가요 → 회사 → 소수결 → 예능 → 상식
     for c_cat, c_round in select * from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
                                                 ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'),
-                                                ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'), ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) loop
+                                                ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'), ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) loop
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic, media)
       select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, case when u.media <> '' then 25 else 15 end, '', false, u.id, nullif(u.topic, ''), u.media
       from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
             from hq_bank b0
-            where b0.cat = c_cat and not b0.flagged and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
+            where b0.cat = c_cat and not b0.flagged and (coalesce(p_arg->>'pack', '') = '' or b0.pack in (p_arg->>'pack', 'all')) and b0.diff >= coalesce((p_arg->>'min_diff')::int, 1)
               and (b0.topic = '' or b0.topic not in (select topic from _pick where topic is not null))
             order by case when b0.topic = '' then b0.id::text else b0.topic end, b0.used, random()) u
       order by u.used, random()
@@ -508,7 +509,7 @@ begin
     if coalesce((p_arg->>'bet')::boolean, true) then
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
         select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
-        from hq_bank where cat = '베팅' and not flagged and (topic = '' or topic not in (select topic from _pick where topic is not null))
+        from hq_bank where cat = '베팅' and not flagged and (coalesce(p_arg->>'pack', '') = '' or pack in (p_arg->>'pack', 'all')) and (topic = '' or topic not in (select topic from _pick where topic is not null))
         order by used, random() limit 1;
     end if;
     if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
@@ -536,6 +537,7 @@ begin
     insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
       select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media from _pick p join _ord o on o.ord = p.ord;
     update hq_bank set used = used + 1 where id in (select bank_id from _pick where bank_id is not null);
+    update hq_state set pack = coalesce(nullif(p_arg->>'pack', ''), pack) where id = 1;
     return jsonb_build_object('ok', true, 'total', (select count(*) from _pick));
 
   elsif p_action = 'questions_get' then

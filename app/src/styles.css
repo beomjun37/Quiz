@@ -306,7 +306,7 @@ svg { flex-shrink: 0; }
 .bank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .admin input[type=checkbox] { width: auto; margin: 0 6px 0 0; padding: 0; vertical-align: -2px; }
 .bank-cat { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: var(--ink); border-radius: 10px; padding: 6px 6px 6px 10px; font-size: 14px; font-weight: 700; }
-.bank-cat span { white-space: nowrap; } .bank-cat small { color: var(--mute); font-weight: 500; }
+.bank-cat { min-width: 0; } .bank-cat span { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; } .bank-cat .stepper { flex-shrink: 0; } .bank-cat small { color: var(--mute); font-weight: 500; }
 .stepper.sm button { width: 34px; height: 36px; font-size: 20px; } .stepper.sm b { min-width: 26px; font-size: 17px; }
 .check { margin-bottom: 12px; }
 .check-res { margin-top: 8px; display: grid; gap: 4px; font-size: 14px; }

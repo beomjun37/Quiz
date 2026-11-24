@@ -393,24 +393,42 @@ function PinChange({ admin, busy, onChanged }) {
 }
 
 // 문제 은행에서 랜덤 세트 만들기. '고정'한 문제(사진 문제 등)는 그대로 두고 나머지만 새로 뽑는다.
-const CATS = ['추억', '가요', '노래', '이모지', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
+const CATS = ['추억', '학창시절', '게임', '가요', '노래', '이모지', '요즘 말', '예능', '회사', '상식', '다수결', '소수결']
+// 문제 묶음: 부장님 회식용 / 94~00년생 동기 송년회용. 고른 묶음은 이 폰에 기억해 둔다.
+const PACKS = [['boss', '회식용 (부장님)'], ['peer', '동기 송년회용 (9X년생)']]
+const DEFAULT_COUNTS = {
+  boss: { 추억: 1, 가요: 1, 노래: 2, 이모지: 2, '요즘 말': 1, 예능: 1, 회사: 0, 상식: 0, 다수결: 1, 소수결: 1 },
+  peer: { 학창시절: 1, 추억: 1, 게임: 1, 가요: 1, 노래: 2, 이모지: 1, '요즘 말': 1, 예능: 1, 회사: 0, 다수결: 1, 소수결: 1 },
+}
+function usePack() {
+  const [pack, setPackState] = useState(() => { try { return localStorage.getItem('hq-pack') || 'boss' } catch { return 'boss' } })
+  const setPack = (p) => { setPackState(p); try { localStorage.setItem('hq-pack', p) } catch { /* noop */ } }
+  return [pack, setPack]
+}
+function PackPicker({ pack, setPack }) {
+  return <div className="seg" style={{ margin: '0 0 10px' }}>{PACKS.map(([k, l]) => (
+    <button type="button" key={k} className={pack === k ? 'on' : ''} onClick={() => setPack(k)}>{l}</button>))}</div>
+}
 function BankPanel({ admin, phase, setMsg, onDone }) {
+  const [pack, setPack] = usePack()
   const [stats, setStats] = useState(null)
-  const [counts, setCounts] = useState({ 추억: 1, 가요: 1, 노래: 2, 이모지: 2, '요즘 말': 1, 예능: 1, 회사: 0, 상식: 0, 다수결: 1, 소수결: 1 })
+  const [counts, setCounts] = useState(DEFAULT_COUNTS[pack] ?? DEFAULT_COUNTS.boss)
   const [minDiff, setMinDiff] = useState(2)
   const [bet, setBet] = useState(true)
-  useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
+  useEffect(() => { setStats(null); setCounts(DEFAULT_COUNTS[pack] ?? DEFAULT_COUNTS.boss); admin('bank_stats', { pack }).then(setStats).catch(() => {}) }, [pack]) // eslint-disable-line
   const avail = (c) => stats?.[c] ? [1, 2, 3].filter((d) => d >= minDiff).reduce((a, d) => a + (stats[c][d] ?? 0), 0) : 0
-  const total = CATS.reduce((a, c) => a + Math.min(counts[c], avail(c)), 0) + (bet ? 1 : 0)
+  const cats = CATS.filter((c) => stats?.[c])
+  const total = cats.reduce((a, c) => a + Math.min(counts[c] ?? 0, avail(c)), 0) + (bet ? 1 : 0)
   return <div className="bank">
     <div className="bank-head"><b>문제 은행에서 랜덤으로 뽑기</b><small>자주 나온 문제는 뒤로 밀려서 매번 다르게 나와요</small></div>
-    <div className="bank-grid">{CATS.map((c) => (
+    <PackPicker pack={pack} setPack={setPack} />
+    <div className="bank-grid">{cats.map((c) => (
       <div key={c} className="bank-cat">
         <span>{c} <small className="num">{avail(c)}개</small></span>
         <div className="stepper sm">
-          <button type="button" aria-label={`${c} 줄이기`} onClick={() => setCounts((v) => ({ ...v, [c]: Math.max(0, v[c] - 1) }))}>−</button>
-          <b className="num">{counts[c]}</b>
-          <button type="button" aria-label={`${c} 늘리기`} onClick={() => setCounts((v) => ({ ...v, [c]: Math.min(avail(c), v[c] + 1) }))}>+</button>
+          <button type="button" aria-label={`${c} 줄이기`} onClick={() => setCounts((v) => ({ ...v, [c]: Math.max(0, (v[c] ?? 0) - 1) }))}>−</button>
+          <b className="num">{counts[c] ?? 0}</b>
+          <button type="button" aria-label={`${c} 늘리기`} onClick={() => setCounts((v) => ({ ...v, [c]: Math.min(avail(c), (v[c] ?? 0) + 1) }))}>+</button>
         </div>
       </div>))}
     </div>
@@ -419,7 +437,7 @@ function BankPanel({ admin, phase, setMsg, onDone }) {
     <label style={{ fontSize: 14, color: 'var(--mute)' }}><input type="checkbox" checked={bet} onChange={(e) => setBet(e.target.checked)} /> 마지막에 올인 베팅 문제 넣기</label>
     <button className="go" style={{ marginTop: 10 }} disabled={phase !== 'lobby'} onClick={async () => {
       if (!(await ask(`은행에서 ${total}문제를 새로 뽑을까요?\n'고정'한 문제는 그대로 남고, 나머지 문제는 바뀌어요.`, { ok: '새로 뽑기' }))) return
-      try { const r = await admin('compose', { counts, min_diff: minDiff, bet }); setMsg(`랜덤 세트를 만들었어요 (고정 문제 포함 총 ${r.total}문제)`); onDone() } catch { /* 메시지 표시됨 */ }
+      try { const r = await admin('compose', { counts, min_diff: minDiff, bet, pack }); setMsg(`랜덤 세트를 만들었어요 (고정 문제 포함 총 ${r.total}문제)`); onDone() } catch { /* 메시지 표시됨 */ }
     }}><Shuffle size={18} />랜덤 세트 만들기</button>
     <p className="lead num" style={{ fontSize: 13, margin: '6px 0 0' }}>은행에서 {total}문제 + 고정한 문제</p>
   </div>
@@ -634,19 +652,20 @@ function HostReview({ q, idx, hasImage, img, hasAudio, admin, onSaved, bank = fa
 }
 
 // 문제 은행 둘러보기: 카테고리를 고르면 그 카테고리 전체 문제를 참가자·진행자 화면으로 넘겨 본다
-const BANK_CATS = [['추억', '추억 소환'], ['가요', '추억의 가요'], ['노래', '노래 퀴즈'], ['요즘 말', '요즘 말 테스트'], ['예능', '예능·드라마'],
+const BANK_CATS = [['추억', '추억 소환'], ['학창시절', '학창 시절 소환'], ['게임', '게임·인터넷 추억'], ['가요', '추억의 가요'], ['노래', '노래 퀴즈'], ['요즘 말', '요즘 말 테스트'], ['예능', '예능·드라마'],
   ['이모지', '이모지 퀴즈'], ['회사', '회사 생활'], ['상식', '상식 퀴즈'], ['다수결', '100명에게 물었습니다'], ['소수결', '소수가 이긴다'], ['베팅', '올인 베팅']]
 function BankBrowser({ admin, phase, setMsg, onPreview, onAdded, open: forceOpen = false }) {
+  const [pack, setPack] = usePack()
   const [stats, setStats] = useState(null)
   const [cat, setCat] = useState(null)
   const [items, setItems] = useState([])
-  useEffect(() => { admin('bank_stats').then(setStats).catch(() => {}) }, []) // eslint-disable-line
+  useEffect(() => { setCat(null); setItems([]); admin('bank_stats', { pack }).then(setStats).catch(() => {}) }, [pack]) // eslint-disable-line
   const total = (c) => stats?.[c] ? (stats[c]['1'] ?? 0) + (stats[c]['2'] ?? 0) + (stats[c]['3'] ?? 0) : 0
   const all = stats ? Object.keys(stats).reduce((a, c) => a + total(c), 0) : 0
   const asQ = (b, round) => ({ ...b, round, limit_sec: b.media ? 25 : 15, is_bet: b.cat === '베팅', reveal: '' })
   async function openCat(c) {
     setCat(c)
-    try { setItems(await admin('bank_list', { cat: c })) } catch { /* 메시지 표시됨 */ }
+    try { setItems(await admin('bank_list', { cat: c, pack })) } catch { /* 메시지 표시됨 */ }
   }
   const add = async (q) => {
     if (phase !== 'lobby') return setMsg('문제는 게임 시작 전(대기 단계)에만 넣을 수 있어요')
@@ -655,7 +674,8 @@ function BankBrowser({ admin, phase, setMsg, onPreview, onAdded, open: forceOpen
   const round = BANK_CATS.find(([c]) => c === cat)?.[1]
   return <details className="group fold bank-browse" open={forceOpen || undefined}>
     <summary><Library size={18} />문제 은행 둘러보기 <small className="num" style={{ color: 'var(--mute)', fontWeight: 500 }}>· {all}문제</small></summary>
-    <div className="cat-chips">{BANK_CATS.map(([c]) => <button key={c} type="button" className={cat === c ? 'on' : ''} onClick={() => openCat(c)}>{c} <b className="num">{total(c)}</b></button>)}</div>
+    <PackPicker pack={pack} setPack={setPack} />
+    <div className="cat-chips">{BANK_CATS.filter(([c]) => stats?.[c]).map(([c]) => <button key={c} type="button" className={cat === c ? 'on' : ''} onClick={() => openCat(c)}>{c} <b className="num">{total(c)}</b></button>)}</div>
     {cat && <div className="bank-items">
       <button className="row-btn" onClick={() => onPreview(items.map((b) => asQ(b, round)), 0, { bank: true, onAdd: add })}>
         <Smartphone size={20} /><span>{cat} {items.length}문제 처음부터 넘겨 보기<small>참가자·진행자 화면으로 확인</small></span><ChevronRight size={18} /></button>
