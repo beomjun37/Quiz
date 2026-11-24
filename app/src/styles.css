@@ -541,3 +541,6 @@ html[data-skin="vscode"] .choice { border: 1px solid #3c3c3c; }
 .vs-status { display: flex; gap: 12px; background: #007acc; color: #fff; font-size: 11px; padding: 3px 10px calc(3px + env(safe-area-inset-bottom)); white-space: nowrap; overflow: hidden; }
 .vs-status .r { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
 html[data-skin] .big-icon { display: none; }
+.blind-card { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 28px 20px; background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius); color: var(--mute); }
+.blind-card b { color: var(--fg); font-size: 20px; } .blind-card p { margin: 0; font-size: 15px; } .blind-card .go { width: 100%; }
+.blind-chip { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 8px; padding: 4px 10px; border-radius: 999px; background: var(--ink-3); color: var(--mute); font-size: 13px; }
