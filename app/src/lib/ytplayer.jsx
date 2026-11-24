@@ -55,7 +55,11 @@ export default function YTPlayer({ media, len = 15, onSaveStart, compact = false
           onReady: (e) => { if (muted) e.target.mute(); resolve(e.target) },
           onStateChange: (e) => {
             // 준비 중: 광고가 끝나고 본 영상이 재생되기 시작하면 시작 지점에서 멈춰 둔다
-            if (e.data === 1 && stateRef.current === 'preparing') { e.target.pauseVideo(); e.target.seekTo(start, true); e.target.unMute(); setState('ready') }
+            if (e.data === 1 && stateRef.current === 'preparing') {
+              // 바로 멈추면 첫 화면이 그려지기 전이라 검은 화면이 남는다: 시작 지점으로 옮겨 1.5초 소리 없이 재생해 화면을 띄운 뒤 멈춘다
+              stateRef.current = 'settling'; e.target.seekTo(start, true)
+              setTimeout(() => { if (stateRef.current !== 'settling') return; e.target.pauseVideo(); e.target.seekTo(start, true); e.target.unMute(); setState('ready') }, 1500)
+            }
           },
         },
       })
