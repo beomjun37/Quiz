@@ -4,6 +4,7 @@ import Screen from './views/Screen'
 import Admin from './views/Admin'
 import Sim from './views/Sim'
 import { UpdateBanner } from './lib/update'
+import { useSkin, SkinChrome } from './lib/skin'
 
 // 해시 라우터 — GitHub Pages 에서 새로고침해도 404 가 안 난다.
 //   #/        참가자 폰      #/screen  TV·빔프로젝터      #/admin  진행자
@@ -13,6 +14,7 @@ export default function App() {
     const f = () => setRoute(location.hash.slice(1) || '/')
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f)
   }, [])
-  const page = route.startsWith('/screen') ? <Screen /> : route.startsWith('/admin') ? <Admin /> : route.startsWith('/sim') ? <Sim /> : <Phone />
+  const [skin, setSkin] = useSkin()
+  const page = route.startsWith('/screen') ? <Screen /> : route.startsWith('/admin') ? <Admin /> : route.startsWith('/sim') ? <Sim /> : <SkinChrome skin={skin} setSkin={setSkin}><Phone /></SkinChrome>
   return <><UpdateBanner />{page}</>
 }
