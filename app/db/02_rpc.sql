@@ -339,7 +339,7 @@ begin
     if c_cat is null then
       c_cat := case when nq.is_bet then '베팅' else (select v.cat from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
         ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'),
-        ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억')) v(cat, r) where v.r = nq.round) end;
+        ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('트렌드', '요즘 트렌드')) v(cat, r) where v.r = nq.round) end;
     end if;
     -- 같은 영역 → (없으면) 아무 영역. 이미 세트에 있는 문제·주제, 교체된 문제는 뺀다. 사진 없이 돌아가는 문제만.
     select b.id, b.cat into n, c_round from hq_bank b
@@ -354,7 +354,7 @@ begin
         alt = '[]', reveal = '', pinned = false, limit_sec = case when b.media <> '' then 25 else 15 end,
         round = case when b.cat = coalesce(c_cat, '') then q.round else coalesce((select v.r from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
           ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'),
-          ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('베팅', '올인 베팅')) v(cat, r) where v.cat = b.cat), q.round) end
+          ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈'), ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('트렌드', '요즘 트렌드'), ('베팅', '올인 베팅')) v(cat, r) where v.cat = b.cat), q.round) end
       from hq_bank b where b.id = n and q.idx = s.qi;
     update hq_bank set used = used + 1 where id = n;
     -- 같은 번호로 새로 연다(시간도 새로)
@@ -474,7 +474,7 @@ begin
     insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
       select n, (case cat when '추억' then '추억 소환' when '가요' then '추억의 가요' when '노래' then '노래 퀴즈' when '요즘 말' then '요즘 말 테스트'
                  when '예능' then '예능·드라마 소환' when '회사' then '회사 생활' when '상식' then '상식 퀴즈' when '다수결' then '100명에게 물었습니다'
-                 when '소수결' then '소수가 이긴다' when '이모지' then '이모지 퀴즈' when '학창시절' then '학창 시절 소환' when '게임' then '게임·인터넷 추억' else '올인 베팅' end),
+                 when '소수결' then '소수가 이긴다' when '이모지' then '이모지 퀴즈' when '학창시절' then '학창 시절 소환' when '게임' then '게임·인터넷 추억' when '트렌드' then '요즘 트렌드' else '올인 베팅' end),
              type, q, opts, answer, note, false, case when media <> '' then 25 else 15 end, host, '', true, media
       from hq_bank where id = (p_arg->>'id')::int;
     update hq_questions set idx = idx - 999 where idx >= 1000;
@@ -492,7 +492,7 @@ begin
     -- 순서도 흐름을 고려: 몸풀기(추억) → 다수결 → 요즘 말 → 가요 → 회사 → 소수결 → 예능 → 상식
     for c_cat, c_round in select * from (values ('추억', '추억 소환'), ('다수결', '100명에게 물었습니다'), ('요즘 말', '요즘 말 테스트'),
                                                 ('가요', '추억의 가요'), ('회사', '회사 생활'), ('소수결', '소수가 이긴다'),
-                                                ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'), ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) loop
+                                                ('학창시절', '학창 시절 소환'), ('게임', '게임·인터넷 추억'), ('트렌드', '요즘 트렌드'), ('예능', '예능·드라마 소환'), ('이모지', '이모지 퀴즈'), ('노래', '노래 퀴즈'), ('상식', '상식 퀴즈')) v(cat, r) loop
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, topic, media)
       select c_round, u.type, u.q, u.opts, u.answer, u.note, u.host, false, case when u.media <> '' then 25 else 15 end, '', false, u.id, nullif(u.topic, ''), u.media
       from (select distinct on (case when b0.topic = '' then b0.id::text else b0.topic end) b0.*
