@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, EyeOff, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
@@ -20,6 +20,9 @@ export default function Admin() {
   const [busy, setBusy] = useState(false)
   const [retry, setRetry] = useState(null)
   const [accept, setAccept] = useState(false)
+  // 나도 참여 모드: 진행자 화면에서 정답·다음 문제·문제 목록을 가린다(진행자도 다른 폰으로 같이 풀 수 있게)
+  const [blind, setBlindState] = useState(() => { try { return localStorage.getItem('hq-blind') === '1' } catch { return false } })
+  const setBlind = (b) => { setBlindState(b); try { localStorage.setItem('hq-blind', b ? '1' : '0') } catch { /* noop */ } }
   const { view, refetch } = useView(null, 2000)
   useWakeLock()
   const [qr, setQr] = useState(false)
@@ -110,9 +113,10 @@ export default function Admin() {
 
     {tab === 'live' && <main className="tab-page">
       <header className="large-title"><small className="num">{view.phase === 'lobby' ? `참가 ${view.players}명` : `${Math.max(view.qi + 1, 0)} / ${view.total_q}번 · 참가 ${view.players}명`}</small><h1>{phaseKo}</h1></header>
+      {blind && <p className="blind-chip"><EyeOff size={14} /> 나도 참여 모드 · 정답을 가렸어요</p>}
       {['q', 'answer'].includes(view.phase) && view.question && <p className="live-q">{view.question.q}</p>}
       {view.phase === 'q' && view.question && <LiveTimer view={view} />}
-      <HostCard view={view} admin={admin} audios={audios} onPreview={(q, idx) => openPreview(questions, idx)} />
+      <HostCard view={view} admin={admin} audios={audios} blind={blind} onPreview={(q, idx) => openPreview(questions, idx)} />
       <LiveSong view={view} questions={questions} audios={audios} admin={admin} onSaved={refreshQuestions} />
       {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
       <div className="live-actions">
@@ -175,10 +179,17 @@ export default function Admin() {
 
     {tab === 'questions' && <main className="tab-page">
       <header className="large-title with-action"><div><small className="num">{view.total_q}문제</small><h1>문제</h1></div>
-        <button className="more-btn" aria-label="문제 메뉴" onClick={() => setQSheet('menu')}><MoreHorizontal size={24} /></button></header>
+        {!blind && <button className="more-btn" aria-label="문제 메뉴" onClick={() => setQSheet('menu')}><MoreHorizontal size={24} /></button>}</header>
       {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
-      <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage}
-        onPreview={openPreview} onSaved={refreshQuestions} audios={audios} onAudio={onAudio} />
+      {blind ? <div className="blind-card">
+        <EyeOff size={34} />
+        <b>나도 참여 모드예요</b>
+        <p>문제와 정답을 가렸어요. 문제 세트는 랜덤으로만 뽑고, 다른 폰으로 참가해서 같이 풀어 보세요.</p>
+        <button className="go" onClick={() => setQSheet('shuffle')}><Shuffle size={18} />문제 모르게 랜덤으로 뽑기</button>
+        <button className="ghost" onClick={async () => (await ask('문제와 정답을 다시 볼까요?\n보는 순간 같이 푸는 재미는 없어져요.', { ok: '보기' })) && setBlind(false)}>가림 끄기</button>
+      </div>
+      : <QuestionEditor key={editorKey} admin={admin} phase={view.phase} setMsg={setMsg} images={images} onImage={onImage}
+        onPreview={openPreview} onSaved={refreshQuestions} audios={audios} onAudio={onAudio} />}
     </main>}
     {qSheet === 'menu' && <div className="sheet-bg" onClick={() => setQSheet(null)}>
       <div className="action-sheet" onClick={(e) => e.stopPropagation()} role="menu">
@@ -209,6 +220,11 @@ export default function Admin() {
     {tab === 'settings' && <main className="tab-page">
       <header className="large-title"><h1>설정</h1></header>
       {msg && <Notice msg={msg} retry={retry} onClose={() => { setMsg(null); setRetry(null) }} />}
+      <p className="group-label">진행자도 같이 풀기</p>
+      <div className="group">
+        <button className="row-btn" onClick={async () => blind ? (await ask('문제와 정답을 다시 볼까요?', { ok: '보기' })) && setBlind(false) : setBlind(true)}>
+          {blind ? <EyeOff size={20} /> : <Eye size={20} />}<span>나도 참여 모드 {blind ? '켜짐' : '꺼짐'}<small>정답·다음 문제·문제 목록을 가려요. 다른 폰으로 입장해서 같이 풀어요</small></span><ChevronRight size={18} /></button>
+      </div>
       <p className="group-label">참가자 접속</p>
       <div className="group">
         <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
@@ -270,7 +286,7 @@ function LiveTimer({ view }) {
 }
 
 // 진행자 카드: 지금 단계에서 읽을 멘트 + 정답(참가자보다 먼저) + 다음 문제 미리보기
-function HostCard({ view, admin, audios = [], onPreview }) {
+function HostCard({ view, admin, audios = [], onPreview, blind = false }) {
   const [cur, setCur] = useState(null)
   useEffect(() => { admin('current').then(setCur).catch(() => {}) }, [view.phase, view.qi]) // eslint-disable-line
   const q = view.question
@@ -285,7 +301,7 @@ function HostCard({ view, admin, audios = [], onPreview }) {
       say = `지금 ${view.players}명 들어왔어요! 링크 열고 닉네임만 쓰면 입장. 빨리 맞힐수록 고득점, 3연속이면 보너스! 시작합니다!`
       break
     case 'q':
-      say = cur?.now?.host || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
+      say = (!blind && cur?.now?.host) || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
       break
     case 'answer':
       say = q.type === 'poll'
@@ -316,14 +332,15 @@ function HostCard({ view, admin, audios = [], onPreview }) {
 
     {q && ['q', 'answer'].includes(view.phase) && !audios.includes(q.idx) && cur?.now?.media && !parseYouTube(cur.now.media) && <a className="music-btn" href={`https://www.youtube.com/results?search_query=${encodeURIComponent(cur.now.media)}`} target="_blank" rel="noreferrer">
       <Music size={22} /><span>노래 틀기: {cur.now.media}<small>유튜브가 열려요 · 앞부분 10초만 틀고 멈추세요</small></span></a>}
-    {q && view.phase === 'q' && cur?.now && <div className="host-ans"><Eye size={16} />
+    {q && view.phase === 'q' && cur?.now && !blind && <div className="host-ans"><Eye size={16} />
       정답 <b>{label(q, cur.now.answer)}</b>{cur.now.note && <span> · {cur.now.note}</span>}</div>}
     {nx && ['lobby', 'answer', 'bet'].includes(view.phase) && <div className="host-next">
       <small>다음 {nx.idx + 1}번{nx.is_bet ? ' (베팅 문제)' : ''}</small>
+      {blind ? <p>{nx.round} · 문제는 가려 뒀어요</p> : <>
       <p>{nx.q}</p>
-      <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span>
+      <span><Eye size={14} /> 정답 {label(nx, nx.answer)}</span></>}
       {(nx.media || audios.includes(nx.idx)) && <span style={{ display: 'block', marginTop: 4 }}><Music size={14} /> 노래 퀴즈 · 문제를 열면 여기서 바로 재생돼요{audios.includes(nx.idx) ? ' (음원 파일)' : ''}</span>}
-      <button className="ghost" style={{ margin: '8px 0 0', display: 'block' }} onClick={() => onPreview(nx, nx.idx)}><Smartphone size={15} style={{ verticalAlign: -2 }} /> 참가자 화면 미리보기</button>
+      {!blind && <button className="ghost" style={{ margin: '8px 0 0', display: 'block' }} onClick={() => onPreview(nx, nx.idx)}><Smartphone size={15} style={{ verticalAlign: -2 }} /> 참가자 화면 미리보기</button>}
     </div>}
   </div>
 }
