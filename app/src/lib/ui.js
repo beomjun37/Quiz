@@ -78,3 +78,11 @@ export function parseYouTube(media) {
 
 // 정답 + 진행자가 추가로 인정한 보기
 export const isCorrect = (q, i) => q?.answer != null && (i === q.answer || (q.alt ?? []).includes(i))
+
+// 다음 단계(새 문제·정답 공개 등)로 넘어가면 맨 위로: 스크롤해 둔 위치 그대로면 문제와 보기가 한눈에 안 보인다
+export function scrollToTop() {
+  try {
+    window.scrollTo({ top: 0, behavior: 'instant' })
+    document.querySelectorAll('.skin-body, .sim-frame, .preview-phone').forEach((el) => { el.scrollTop = 0 })
+  } catch { /* noop */ }
+}

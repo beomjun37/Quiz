@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, randomNick, trap, REACT_EMOJI, revealOf, isCorrect } from '../lib/ui'
+import { errText, fmt, options, randomNick, trap, REACT_EMOJI, revealOf, isCorrect, scrollToTop } from '../lib/ui'
 import { serverNow } from '../lib/clock'
 import { fx, unlockAudio } from '../lib/fx'
 
@@ -35,7 +35,7 @@ export default function Phone() {
 
   // 진행자가 새 게임을 시작해 내 기록이 사라졌으면 입장부터 다시
   useEffect(() => { if (view && pid && view._for === pid && !view.me) { store(null); setPid(null); setKicked(true) } }, [view, pid])
-  useEffect(() => { setMsg(null) }, [view?.phase, view?.qi])
+  useEffect(() => { setMsg(null); scrollToTop() }, [view?.phase, view?.qi])
   useWakeLock()
   useEffect(() => {
     const f = () => unlockAudio()
