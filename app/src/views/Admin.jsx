@@ -8,7 +8,7 @@ import { ask, ConfirmHost } from '../lib/confirm'
 import YTPlayer, { withStart } from '../lib/ytplayer'
 import { rpc } from '../lib/supabase'
 import { useCountdown, useView } from '../lib/useView'
-import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube, isCorrect } from '../lib/ui'
+import { errText, fmt, options, trap, REACT_EMOJI, parseYouTube, isCorrect, scrollToTop } from '../lib/ui'
 
 const savePin = (p) => { try { localStorage.setItem('hq-pin', p) } catch { /* noop */ } }
 
@@ -30,6 +30,7 @@ export default function Admin() {
   const [preview, setPreview] = useState(null)
   const [qSheet, setQSheet] = useState(null)
   const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem('hq-tab') ?? 'live' } catch { return 'live' } })
+  useEffect(() => { if (tab === 'live') scrollToTop() }, [view?.phase, view?.qi]) // eslint-disable-line
   const setTab = (t) => { setTabState(t); try { sessionStorage.setItem('hq-tab', t) } catch { /* noop */ } window.scrollTo(0, 0) }
   const [questions, setQuestions] = useState([])
   const refreshQuestions = () => admin('questions_get').then((r) => setQuestions(r)).catch(() => {})
