@@ -554,3 +554,4 @@ html[data-skin] .big-icon { display: none; }
 .choices.ox .choice { min-height: 140px; }
 .cards button { padding: 7px 11px; font-size: 14px; border-radius: 10px; }
 @media (max-height: 700px) { .choice { min-height: 54px; font-size: 18px; } .choices.two .choice { min-height: 70px; } .q-title { font-size: 23px; } }
+.choices { margin-top: 14px; }  /* 아래로 밀어 붙이면 연습 모드 상단 바만큼 화면 밖으로 밀려나서 문제 바로 아래에 둔다 */
