@@ -491,7 +491,7 @@ svg { flex-shrink: 0; }
 .qe-tags i.start { background: rgb(74 222 128 / 0.16); color: #4ade80; } .qe-tags i.nostart { color: var(--beer); }
 
 /* ---------- 업무 위장 테마 (참가자 화면) ---------- */
-.skin-pill { position: fixed; top: calc(8px + env(safe-area-inset-top)); right: 10px; z-index: 40; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: var(--ink-3); color: var(--mute); border: 1px solid var(--line); }
+.skin-pill { position: fixed; bottom: calc(8px + env(safe-area-inset-bottom)); left: 10px; opacity: 0.75; z-index: 40; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: var(--ink-3); color: var(--mute); border: 1px solid var(--line); }
 .skin-frame { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
 .skin-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .skin-body .phone { min-height: 0; }
@@ -544,3 +544,13 @@ html[data-skin] .big-icon { display: none; }
 .blind-card { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 28px 20px; background: var(--ink-2); border: 1px solid var(--line); border-radius: var(--radius); color: var(--mute); }
 .blind-card b { color: var(--fg); font-size: 20px; } .blind-card p { margin: 0; font-size: 15px; } .blind-card .go { width: 100%; }
 .blind-chip { display: inline-flex; gap: 6px; align-items: center; margin: 0 0 8px; padding: 4px 10px; border-radius: 999px; background: var(--ink-3); color: var(--mute); font-size: 13px; }
+/* 문제 화면 한눈에: 보기 높이·글자 줄이고, 짧은 보기는 2×2 */
+.q-title { font-size: clamp(24px, 7vw, 30px); line-height: 1.3; margin: 4px 0 10px; }
+.choices { gap: 10px; }
+.choice { min-height: 62px; padding: 10px 14px; font-size: 20px; border-radius: 14px; gap: 12px; }
+.choice .k { width: 32px; height: 32px; font-size: 15px; }
+.choices.two { grid-template-columns: 1fr 1fr; }
+.choices.two .choice { min-height: 82px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; }
+.choices.ox .choice { min-height: 140px; }
+.cards button { padding: 7px 11px; font-size: 14px; border-radius: 10px; }
+@media (max-height: 700px) { .choice { min-height: 54px; font-size: 18px; } .choices.two .choice { min-height: 70px; } .q-title { font-size: 23px; } }

@@ -235,7 +235,7 @@ function Question({ view, me, act, busy }) {
       <div className="bar"><i style={{ width: `${(left / q.limit_sec) * 100}%` }} /></div>
       <b className="num">{Math.ceil(left)}</b>
     </div>
-    <h1 className="title">{q.q}</h1>
+    <h1 className="title q-title">{q.q}</h1>
     {poll && <p className="lead" style={{ marginTop: -8 }}>정답 없는 투표예요. 점수엔 영향 없어요.</p>}
     {q.music && <div className="music"><span className="eq"><i /><i /><i /><i /></span>진행자가 노래를 틀어요. 잘 들어 보세요!</div>}
     {q.type === 'survey' && <p className="rule-hint"><Vote size={16} />다수결! 가장 많은 사람이 고른 답이 정답이에요</p>}
@@ -247,7 +247,7 @@ function Question({ view, me, act, busy }) {
       <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'double' }))}><Zap size={18} />점수 2배</button>
       {q.idx <= 1 && <small>찬스 카드는 게임 전체에서 딱 1장! 50:50은 오답 2개 지우기, 2배는 맞히면 점수 두 배.</small>}
     </div>}
-    <div className={`choices ${ox ? 'ox' : ''}`}>
+    <div className={`choices ${ox ? 'ox' : ''} ${!ox && options(q).every(([l]) => String(l).length <= 7) ? 'two' : ''}`}>
       {options(q).map(([label, k, bg, dark], i) => hide.includes(i)
         ? <div key={i} className="choice gone"><span className="k">{k}</span>{label}</div>
         : <button key={i} className={`choice ${dark ? 'dark' : ''}`} style={{ background: bg }} disabled={busy}
