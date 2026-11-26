@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, EyeOff, Share2, Download, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, EyeOff, Share2, Download, Dumbbell, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
@@ -198,6 +198,12 @@ export default function Admin() {
           {[['review', Smartphone, '전체 문제 점검', () => { setQSheet(null); openPreview(questions, 0) }],
             ['sim', PlayCircle, '실전처럼 혼자 풀어 보기', () => { setQSheet(null); try { localStorage.setItem('hq-pin-sim', pin) } catch { /* noop */ } window.open(`${base}#/sim`, '_blank') }],
             ['shuffle', Shuffle, '랜덤으로 다시 뽑기', () => setQSheet('shuffle')],
+            ['practice', Dumbbell, questions.some((q) => q.practice) ? '연습 3문제 빼기' : '지금 세트 앞에 연습 3문제 넣기', async () => {
+              setQSheet(null)
+              const on = !questions.some((q) => q.practice)
+              if (view.phase !== 'lobby') return setMsg('게임 시작 전(대기 화면)에만 바꿀 수 있어요. 연습 모드는 끝내기를 먼저 눌러 주세요')
+              try { await admin('practice', { on }); setEditorKey((k) => k + 1); refreshQuestions(); refreshImages(); setMsg(on ? '맨 앞에 연습 3문제를 넣었어요 (점수 없음)' : '연습 문제를 뺐어요') } catch { /* 메시지 표시됨 */ }
+            }],
             ['bank', Library, '문제 은행 둘러보기', () => setQSheet('bank')],
             ['check', ClipboardCheck, '문항 점검', () => setQSheet('check')]].map(([k, Icon, l, fn]) =>
             <button key={k} className="as-btn as-row" onClick={fn}><Icon size={20} />{l}</button>)}

@@ -364,6 +364,34 @@ begin
     perform hq_open_q();
     return jsonb_build_object('ok', true, 'same_cat', coalesce(c_round = c_cat, false), 'cat', c_round);
 
+  elsif p_action = 'practice' then                  -- 지금 세트는 그대로 두고 연습 3문제를 맨 앞에 넣기({"on":true}) / 빼기({"on":false})
+    if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
+    n := (select count(*) from hq_questions where practice);
+    if n > 0 then                                   -- 이미 있으면 먼저 뺀다
+      delete from hq_questions where practice;
+      update hq_questions set idx = idx + 1000 where true;
+      update hq_images set idx = idx + 1000 where true;
+      update hq_audio set idx = idx + 1000 where true;
+      update hq_questions set idx = idx - 1000 - n where true;
+      update hq_images set idx = idx - 1000 - n where true;
+      update hq_audio set idx = idx - 1000 - n where true;
+    end if;
+    if coalesce((p_arg->>'on')::boolean, true) then
+      update hq_questions set idx = idx + 1000 where true;
+      update hq_images set idx = idx + 1000 where true;
+      update hq_audio set idx = idx + 1000 where true;
+      insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice)
+        select (row_number() over (order by k) - 1)::int, '연습 문제', type, q, opts, answer, note, false, 15, host, '', false, '', true from (
+          (select 1 k, * from hq_bank where cat = '연습' and type = 'ox' order by random() limit 1)
+          union all (select 2, * from hq_bank where cat = '연습' and type = 'mc' order by random() limit 1)
+          union all (select 3, * from hq_bank where cat = '연습' and type in ('survey', 'minority') order by random() limit 1)) z;
+      n := (select count(*) from hq_questions where practice);
+      update hq_questions set idx = idx - 1000 + n where idx >= 1000;
+      update hq_images set idx = idx - 1000 + n where true;
+      update hq_audio set idx = idx - 1000 + n where true;
+    end if;
+    return jsonb_build_object('ok', true, 'practice', (select count(*) from hq_questions where practice));
+
   elsif p_action = 'goto' then                      -- 연습용: 원하는 문제로 바로 이동(그 문제부터 답안·카드를 지우고 새로 연다)
     n := least(greatest((p_arg->>'qi')::int, 0), (select count(*) from hq_questions) - 1);
     delete from hq_answers where qi >= n;
