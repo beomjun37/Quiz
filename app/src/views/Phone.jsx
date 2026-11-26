@@ -213,6 +213,7 @@ export function QImage({ q, left, src: given }) {
 function Question({ view, me, act, busy }) {
   const q = view.question
   const left = useCountdown(view.q_started_at, q.limit_sec)
+  const late = String(q.q).startsWith('초성') ? Math.max(0, 5 - (q.limit_sec - left)) : 0
   const last = useRef(null)
   useEffect(() => { const s = Math.ceil(left); if (s <= 3 && s > 0 && s !== last.current && me.answer == null) fx.tick(); last.current = s }, [left, me.answer])
 
@@ -247,6 +248,7 @@ function Question({ view, me, act, busy }) {
       <button disabled={busy} onClick={() => act(() => rpc('hq_card', { p_player: me.id, p_kind: 'double' }))}><Zap size={18} />점수 2배</button>
       {q.idx <= 1 && <small>찬스 카드는 게임 전체에서 딱 1장! 50:50은 오답 2개 지우기, 2배는 맞히면 점수 두 배.</small>}
     </div>}
+    {late > 0 ? <div className="late-box"><b className="num">{Math.ceil(late)}</b><span>초성 퀴즈! 보기는 잠시 뒤에 나와요.<br />머릿속으로 먼저 떠올려 보세요 🤔</span></div> :
     <div className={`choices ${ox ? 'ox' : ''} ${!ox && options(q).every(([l]) => String(l).length <= 7) ? 'two' : ''}`}>
       {options(q).map(([label, k, bg, dark], i) => hide.includes(i)
         ? <div key={i} className="choice gone"><span className="k">{k}</span>{label}</div>
@@ -254,7 +256,7 @@ function Question({ view, me, act, busy }) {
             onClick={() => act(() => rpc('hq_answer', { p_player: me.id, p_choice: i }))}>
             {ox ? label : <><span className="k">{k}</span>{label}</>}
           </button>)}
-    </div>
+    </div>}
   </>
 }
 

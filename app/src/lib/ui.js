@@ -23,6 +23,7 @@ export const ERR = {
   PIN_LOCKED: 'PIN을 여러 번 틀려서 5분 동안 잠겼어요',
   NO_SPARE: '바꿔 넣을 문제가 은행에 없어요. 건너뛰기를 써 주세요',
   NOT_REVEALED: '정답을 공개한 뒤에 쓸 수 있어요',
+  TOO_EARLY: '보기가 나온 뒤에 골라 주세요',
   NO_CANDIDATE: '더 뽑을 사람이 없어요 (1~3등과 이미 뽑힌 사람은 빠져요)',
   NOT_DRAW: '추첨은 최종 순위 다음에 할 수 있어요',
   ONLY_IN_LOBBY: '문항은 시작 전(대기 단계)에만 바꿀 수 있어요',

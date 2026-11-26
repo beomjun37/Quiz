@@ -224,6 +224,8 @@ begin
   if p_choice < 0 or p_choice >= hq_nopts(q) then raise exception 'BAD_CHOICE'; end if;
   if p.card = 'fifty' and p.card_qi = s.qi and p.card_hide ? p_choice::text then raise exception 'BAD_CHOICE'; end if;
   if now() > s.q_started_at + make_interval(secs => q.limit_sec + 2) then raise exception 'TOO_LATE'; end if;
+  -- 초성 퀴즈는 보기를 5초 늦게 보여 준다(보기가 바로 보이면 너무 쉽다)
+  if q.q like '초성%' and now() < s.q_started_at + interval '4.5 seconds' then raise exception 'TOO_EARLY'; end if;
   insert into hq_answers (player_id, qi, choice) values (p_player, s.qi, p_choice) on conflict do nothing;  -- 한 번 내면 못 바꾼다
   return jsonb_build_object('ok', true);
 end $$;
@@ -734,7 +736,7 @@ begin
   insert into hq_answers (player_id, qi, choice, at)
   select id, q.idx,
          case when q.answer is not null and random() < 0.65 then q.answer else floor(random() * n)::int end,
-         now() + make_interval(secs => 1.5 + random() * 10.5)
+         now() + make_interval(secs => case when q.q like '초성%' then 5.5 else 1.5 end + random() * 10)
   from hq_players where is_bot
   on conflict do nothing;
 end $$;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, EyeOff, X as Close } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Dices, Copy, ListOrdered, Mic, Eye, Lock, RotateCcw, Save, SlidersHorizontal, Users, QrCode, Undo2, KeyRound, PencilLine, AlertTriangle, Shuffle, ClipboardCheck, PlayCircle, Square, CheckCircle2, Smartphone, RotateCw, Radio, ListChecks, Settings, SkipForward, XCircle, Music, Plus, Library, MoreHorizontal, CheckCheck, EyeOff, Share2, Download, X as Close } from 'lucide-react'
 import QuestionEditor from './QuestionEditor'
 import { QImage, useWakeLock } from './Phone'
 import { makeClip } from '../lib/audioclip'
@@ -127,7 +127,7 @@ export default function Admin() {
       </div>
       {view.phase === 'lobby' && <div className="group">
         <button className="row-btn" onClick={() => setQr(true)}><QrCode size={20} /><span>입장 QR 크게 보기</span><ChevronRight size={18} /></button>
-        <button className="row-btn" onClick={() => navigator.clipboard?.writeText(base).then(() => setMsg('주소를 복사했어요'))}><Copy size={20} /><span>참가 링크 복사 (단톡방용)</span><ChevronRight size={18} /></button>
+        <button className="row-btn" onClick={() => shareLink(base)}><Share2 size={20} /><span>참가 링크 공유 (단톡방용)<small>카카오톡 등 공유 창이 열려요</small></span><ChevronRight size={18} /></button>
       </div>}
       {view.phase === 'q' && <div className="group">
         <button className="row-btn" disabled={busy} onClick={async () => (await ask('이 문제를 건너뛸까요?\n낸 답은 지워지고, 점수 없이 바로 다음으로 넘어가요.', { ok: '건너뛰기' })) && run('skip', { from_phase: 'q', from_qi: view.qi })}>
@@ -386,8 +386,36 @@ function QrOverlay({ url, onClose }) {
       <p style={{ margin: '0 0 10px', color: '#555', fontSize: 14 }}>잘 안 찍히면 이 폰의 화면 밝기를 올려 주세요</p>
       {src && <img src={src} alt="입장 QR 코드" />}
       <p>{url}</p>
+      <div className="qr-actions">
+        <button className="go" onClick={() => shareLink(url)}><Share2 size={18} />링크 공유</button>
+        <button className="ghost" onClick={() => shareQrImage(url)}><Download size={18} />QR 이미지 저장·공유</button>
+      </div>
+      <p style={{ fontSize: 13, color: '#666' }}>단톡방엔 <b>링크</b>를 올리는 게 제일 편해요. 누르면 바로 입장!</p>
     </div>
   </div>
+}
+
+// 단톡방 공유: 폰의 공유 시트(카카오톡 등)를 열고, 안 되면 링크를 복사한다
+async function shareLink(url) {
+  const text = '한잔 퀴즈 입장 링크예요. 누르고 닉네임만 쓰면 바로 참여!'
+  try { if (navigator.share) { await navigator.share({ title: '한잔 퀴즈', text, url }); return } } catch { return }
+  try { await navigator.clipboard.writeText(`${text}\n${url}`); alert('링크를 복사했어요. 단톡방에 붙여 넣어 주세요') } catch { prompt('이 링크를 복사해 주세요', url) }
+}
+// QR 이미지: 제목과 주소를 넣은 PNG 를 만들어 공유(안 되면 내려받기)
+async function shareQrImage(url) {
+  const qr = await QRCode.toDataURL(url, { width: 640, margin: 2 })
+  const img = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = qr })
+  const c = document.createElement('canvas'); c.width = 720; c.height = 900
+  const g = c.getContext('2d')
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height)
+  g.fillStyle = '#111'; g.textAlign = 'center'; g.font = 'bold 44px Pretendard, sans-serif'; g.fillText('한잔 퀴즈 입장', 360, 80)
+  g.font = '26px Pretendard, sans-serif'; g.fillStyle = '#555'; g.fillText('카메라로 찍거나, 이미지를 길게 눌러 QR 인식', 360, 124)
+  g.drawImage(img, 40, 150, 640, 640)
+  g.font = '22px Pretendard, sans-serif'; g.fillText(url, 360, 850)
+  const blob = await new Promise((res) => c.toBlob(res, 'image/png'))
+  const file = new File([blob], 'quiz-qr.png', { type: 'image/png' })
+  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: '한잔 퀴즈 입장 QR' }); return } } catch { return }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'quiz-qr.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000)
 }
 
 function PinChange({ admin, busy, onChanged }) {
