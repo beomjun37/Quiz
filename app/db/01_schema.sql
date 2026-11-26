@@ -159,6 +159,9 @@ alter table hq_bank drop constraint if exists hq_bank_pack_check;
 alter table hq_bank add constraint hq_bank_pack_check check (pack in ('boss', 'peer', 'all'));
 alter table hq_state add column if not exists pack text not null default 'boss';  -- 지금 세트를 뽑은 묶음(문제 교체 때 같은 묶음에서 고른다)
 
+-- 게임 전 몸풀기 연습 문제: 점수·연속 정답·찬스 카드에 영향 없음
+alter table hq_questions add column if not exists practice boolean not null default false;
+
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then

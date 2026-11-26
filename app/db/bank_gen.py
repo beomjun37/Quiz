@@ -205,7 +205,7 @@ B = [
 ('베팅',3,'mc','한국 프로야구 원년(1982년) 우승팀은?',['OB 베어스','삼성 라이온즈','MBC 청룡','해태 타이거즈'],0,'한국시리즈에서 삼성을 꺾었어요','마지막 문제! 야구팬의 역전 찬스!','baseball'),
 ]
 exec(open('/var/tmp/peer.py').read())
-B=[tuple(list(r)+['']*(10-len(r)))+('boss',) for r in B]+[tuple(list(r)+[''])+('peer',) for r in PEER]
+B=[tuple(list(r)+['']*(10-len(r)))+('boss',) for r in B]+[tuple(list(r)+[''])+('peer',) for r in PEER]+[tuple(list(r)+[''])+('all',) for r in PRACTICE]
 B=[r[:10]+(('all',) if r[9] and any(x in r[9] for x in SHARED_SONGS) else r[10:11]) for r in B]
 import random
 random.seed(7)

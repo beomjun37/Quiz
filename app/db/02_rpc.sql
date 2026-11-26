@@ -71,7 +71,7 @@ begin
     if p.card = p_kind and p.card_qi = s.qi then return jsonb_build_object('ok', true); end if;  -- 재전송
     raise exception 'CARD_USED';
   end if;
-  if s.phase <> 'q' or q.type = 'poll' or q.is_bet then raise exception 'CARD_NOT_NOW'; end if;
+  if s.phase <> 'q' or q.type = 'poll' or q.is_bet or q.practice then raise exception 'CARD_NOT_NOW'; end if;
   if exists (select 1 from hq_answers where player_id = p_player and qi = s.qi) then raise exception 'CARD_NOT_NOW'; end if;
   if p_kind = 'fifty' then
     if q.type <> 'mc' then raise exception 'CARD_NOT_NOW'; end if;
@@ -145,7 +145,7 @@ begin
       'bet', (select pct from hq_bets b where b.player_id = p.id),
       'won', p.won, 'max_streak', p.max_streak,
       'correct', (select count(*) from hq_answers a join hq_questions qq on qq.idx = a.qi
-                  where a.player_id = p.id and qq.type <> 'poll' and (a.choice = qq.answer or qq.alt @> to_jsonb(a.choice)) and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
+                  where a.player_id = p.id and qq.type <> 'poll' and not qq.practice and (a.choice = qq.answer or qq.alt @> to_jsonb(a.choice)) and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
       'rank', (select count(*) + 1 from hq_players o where o.score > p.score))
     into me from hq_players p where p.id = p_player;
   end if;
@@ -164,7 +164,7 @@ begin
         from hq_players) x),
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
-        'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
+        'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'practice', q.practice, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
         'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal, 'music', q.media <> '' or exists (select 1 from hq_audio where idx = q.idx),
         'answer', case when revealed then q.answer end,
         'alt', case when revealed then q.alt end,
@@ -390,9 +390,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false), coalesce(e->>'media', '')
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false), coalesce(e->>'media', ''), coalesce((e->>'practice')::boolean, false)
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
     delete from hq_audio where idx >= (select count(*) from hq_questions);
@@ -507,7 +507,7 @@ begin
     end loop;
     insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx, media)
       select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx, media
-      from hq_questions where pinned and not is_bet order by idx;
+      from hq_questions where pinned and not is_bet and not practice order by idx;
     if coalesce((p_arg->>'bet')::boolean, true) then
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
         select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
@@ -515,14 +515,24 @@ begin
         order by used, random() limit 1;
     end if;
     if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
+    -- 시작 전 연습 3문제(O/X 1, 4지선다 1, 다수결·소수결 1): 맨 앞, 점수 없음
+    alter table _pick add column practice boolean not null default false;
+    if coalesce((p_arg->>'practice')::boolean, false) then
+      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, practice)
+        select '연습 문제', type, q, opts, answer, note, host, false, 15, '', false, id, true from (
+          (select * from hq_bank where cat = '연습' and type = 'ox' order by random() limit 1)
+          union all (select * from hq_bank where cat = '연습' and type = 'mc' order by random() limit 1)
+          union all (select * from hq_bank where cat = '연습' and type in ('survey', 'minority') order by random() limit 1)) z;
+    end if;
     -- 고정 문항의 사진은 새 번호로 옮기고 나머지 사진은 정리
     -- 최종 순서: 사진 문제는 은행 문제 사이에 고르게 흩고(첫 문제는 사진으로 시작), 그 밖의 고정 문제는 뒤로, 베팅은 맨 끝.
     alter table _pick add column sk numeric;
-    n := (select count(*) from _pick where bank_id is not null and not is_bet);
+    n := (select count(*) from _pick where bank_id is not null and not is_bet and not practice);
     i := (select count(*) from _pick where pinned and reveal <> '');
     update _pick p set sk = case
+      when p.practice then -1e9 + p.ord
       when p.is_bet then 1e9
-      when p.bank_id is not null then (select count(*) from _pick x where x.bank_id is not null and not x.is_bet and x.ord < p.ord) * 10 + 5
+      when p.bank_id is not null then (select count(*) from _pick x where x.bank_id is not null and not x.is_bet and not x.practice and x.ord < p.ord) * 10 + 5
       when p.reveal <> '' then round((select count(*) from _pick x where x.pinned and x.reveal <> '' and x.ord < p.ord) * n::numeric / greatest(i, 1)) * 10
       else 1e8 + p.ord end
     where true;  -- Supabase 는 WHERE 없는 UPDATE 를 막는다
@@ -536,8 +546,8 @@ begin
     delete from hq_audio where true;
     insert into hq_audio (idx, data) select idx, data from _aud;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
-      select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media from _pick p join _ord o on o.ord = p.ord;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice)
+      select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice from _pick p join _ord o on o.ord = p.ord;
     update hq_bank set used = used + 1 where id in (select bank_id from _pick where bank_id is not null);
     update hq_state set pack = coalesce(nullif(p_arg->>'pack', ''), pack) where id = 1;
     return jsonb_build_object('ok', true, 'total', (select count(*) from _pick));
@@ -600,6 +610,12 @@ begin
       update hq_state set phase = 'answer', updated_at = now() where id = 1;
       return;
     end if;
+  end if;
+
+  if q.practice then  -- 연습 문제: 정답만 보여 주고 점수·연속 기록은 그대로
+    update hq_players set last_gain = 0, last_bonus = '{}' where true;
+    update hq_state set phase = 'answer', updated_at = now() where id = 1;
+    return;
   end if;
 
   if q.type = 'poll' then

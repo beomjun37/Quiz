@@ -560,3 +560,4 @@ html[data-skin] .big-icon { display: none; }
 .late-box b { font-size: 44px; color: var(--beer); min-width: 1.2ch; text-align: center; }
 .qr-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 6px 0; } .qr-actions button { display: inline-flex; gap: 6px; align-items: center; }
 .qr-actions .ghost { background: #eef0f3; color: #222; }
+.practice-tag { display: inline-block; margin: 0 0 6px; padding: 3px 10px; border-radius: 999px; background: var(--ink-3); color: var(--soju); font-size: 14px; font-weight: 800; }

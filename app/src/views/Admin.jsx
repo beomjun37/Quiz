@@ -302,7 +302,7 @@ function HostCard({ view, admin, audios = [], onPreview, blind = false }) {
       say = `지금 ${view.players}명 들어왔어요! 링크 열고 닉네임만 쓰면 입장. 빨리 맞힐수록 고득점, 3연속이면 보너스! 시작합니다!`
       break
     case 'q':
-      say = (!blind && cur?.now?.host) || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
+      say = q.practice ? `연습 문제예요! 점수 없이 누르는 방법만 익혀 볼게요. ${q.limit_sec}초 드립니다!` : (!blind && cur?.now?.host) || `${q.idx + 1}번 문제! ${q.limit_sec}초 드립니다. 빨리 누를수록 점수가 높아요!`
       break
     case 'answer':
       say = q.type === 'poll'
@@ -461,10 +461,11 @@ function BankPanel({ admin, phase, setMsg, onDone }) {
   const [counts, setCounts] = useState(DEFAULT_COUNTS[pack] ?? DEFAULT_COUNTS.boss)
   const [minDiff, setMinDiff] = useState(2)
   const [bet, setBet] = useState(true)
+  const [practice, setPractice] = useState(true)
   useEffect(() => { setStats(null); setCounts(DEFAULT_COUNTS[pack] ?? DEFAULT_COUNTS.boss); admin('bank_stats', { pack }).then(setStats).catch(() => {}) }, [pack]) // eslint-disable-line
   const avail = (c) => stats?.[c] ? [1, 2, 3].filter((d) => d >= minDiff).reduce((a, d) => a + (stats[c][d] ?? 0), 0) : 0
   const cats = CATS.filter((c) => stats?.[c])
-  const total = cats.reduce((a, c) => a + Math.min(counts[c] ?? 0, avail(c)), 0) + (bet ? 1 : 0)
+  const total = cats.reduce((a, c) => a + Math.min(counts[c] ?? 0, avail(c)), 0) + (bet ? 1 : 0) + (practice ? 3 : 0)
   return <div className="bank">
     <div className="bank-head"><b>문제 은행에서 랜덤으로 뽑기</b><small>자주 나온 문제는 뒤로 밀려서 매번 다르게 나와요</small></div>
     <PackPicker pack={pack} setPack={setPack} />
@@ -480,10 +481,11 @@ function BankPanel({ admin, phase, setMsg, onDone }) {
     </div>
     <div className="seg" style={{ margin: '8px 0' }}>{[[1, '쉬움 포함'], [2, '보통 이상'], [3, '어려움만']].map(([d, l]) => (
       <button type="button" key={d} className={minDiff === d ? 'on' : ''} onClick={() => setMinDiff(d)}>{l}</button>))}</div>
+    <label style={{ fontSize: 14, color: 'var(--mute)', display: 'block' }}><input type="checkbox" checked={practice} onChange={(e) => setPractice(e.target.checked)} /> 시작 전 연습 3문제 넣기 (점수 없음)</label>
     <label style={{ fontSize: 14, color: 'var(--mute)' }}><input type="checkbox" checked={bet} onChange={(e) => setBet(e.target.checked)} /> 마지막에 올인 베팅 문제 넣기</label>
     <button className="go" style={{ marginTop: 10 }} disabled={phase !== 'lobby'} onClick={async () => {
       if (!(await ask(`은행에서 ${total}문제를 새로 뽑을까요?\n'고정'한 문제는 그대로 남고, 나머지 문제는 바뀌어요.`, { ok: '새로 뽑기' }))) return
-      try { const r = await admin('compose', { counts, min_diff: minDiff, bet, pack }); setMsg(`랜덤 세트를 만들었어요 (고정 문제 포함 총 ${r.total}문제)`); onDone() } catch { /* 메시지 표시됨 */ }
+      try { const r = await admin('compose', { counts, min_diff: minDiff, bet, pack, practice }); setMsg(`랜덤 세트를 만들었어요 (고정 문제 포함 총 ${r.total}문제)`); onDone() } catch { /* 메시지 표시됨 */ }
     }}><Shuffle size={18} />랜덤 세트 만들기</button>
     <p className="lead num" style={{ fontSize: 13, margin: '6px 0 0' }}>은행에서 {total}문제 + 고정한 문제</p>
   </div>
