@@ -226,7 +226,7 @@ function Question({ view, me, act, busy }) {
 
   const ox = q.type === 'ox', poll = q.type === 'poll'
   const hide = me.hide ?? []
-  const canCard = !me.card && !poll && !q.is_bet
+  const canCard = !me.card && !poll && !q.is_bet && !q.practice
   return <>
     <div className="qhead">
       <span className="round">{q.is_bet ? <Flame size={18} /> : poll ? <Vote size={18} /> : null}{q.round} · {q.idx + 1}/{view.total_q}</span>
@@ -236,6 +236,7 @@ function Question({ view, me, act, busy }) {
       <div className="bar"><i style={{ width: `${(left / q.limit_sec) * 100}%` }} /></div>
       <b className="num">{Math.ceil(left)}</b>
     </div>
+    {q.practice && <p className="practice-tag">연습 문제 · 점수 없음 · 방법만 익혀요</p>}
     <h1 className="title q-title">{q.q}</h1>
     {poll && <p className="lead" style={{ marginTop: -8 }}>정답 없는 투표예요. 점수엔 영향 없어요.</p>}
     {q.music && <div className="music"><span className="eq"><i /><i /><i /><i /></span>진행자가 노래를 틀어요. 잘 들어 보세요!</div>}
@@ -316,6 +317,7 @@ function Result({ view, me }) {
       : <div className={`verdict ${none ? 'none' : ok ? 'ok' : 'no'}`}>
           <h2>{none ? '시간 초과' : ok ? '정답!' : '아쉽다'}</h2>
           {q.answer != null && <div className="answer-pill"><Check size={20} />정답 <b>{[q.answer, ...(q.alt ?? [])].map((i) => options(q)[i][0]).join(' · ')}</b></div>}
+          {q.practice && <p className="verdict-sub">연습이라 점수는 그대로예요. 진짜 게임은 곧 시작!</p>}
           {!ok && !none && q.answer != null && <p className="verdict-sub">내 답: {options(q)[me.answer][0]}</p>}
           <div className="gain num">{me.gain > 0 ? '+' : ''}{fmt(me.gain)}</div>
           {chips.length > 0 && <div className="chips">{chips.map(([icon, t], i) => <span key={i}>{icon}{t}</span>)}</div>}

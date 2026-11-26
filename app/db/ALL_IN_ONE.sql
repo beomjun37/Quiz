@@ -159,6 +159,9 @@ alter table hq_bank drop constraint if exists hq_bank_pack_check;
 alter table hq_bank add constraint hq_bank_pack_check check (pack in ('boss', 'peer', 'all'));
 alter table hq_state add column if not exists pack text not null default 'boss';  -- 지금 세트를 뽑은 묶음(문제 교체 때 같은 묶음에서 고른다)
 
+-- 게임 전 몸풀기 연습 문제: 점수·연속 정답·찬스 카드에 영향 없음
+alter table hq_questions add column if not exists practice boolean not null default false;
+
 -- Realtime: hq_state 한 행만 구독하면 된다.
 do $$ begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
@@ -245,7 +248,7 @@ begin
     if p.card = p_kind and p.card_qi = s.qi then return jsonb_build_object('ok', true); end if;  -- 재전송
     raise exception 'CARD_USED';
   end if;
-  if s.phase <> 'q' or q.type = 'poll' or q.is_bet then raise exception 'CARD_NOT_NOW'; end if;
+  if s.phase <> 'q' or q.type = 'poll' or q.is_bet or q.practice then raise exception 'CARD_NOT_NOW'; end if;
   if exists (select 1 from hq_answers where player_id = p_player and qi = s.qi) then raise exception 'CARD_NOT_NOW'; end if;
   if p_kind = 'fifty' then
     if q.type <> 'mc' then raise exception 'CARD_NOT_NOW'; end if;
@@ -319,7 +322,7 @@ begin
       'bet', (select pct from hq_bets b where b.player_id = p.id),
       'won', p.won, 'max_streak', p.max_streak,
       'correct', (select count(*) from hq_answers a join hq_questions qq on qq.idx = a.qi
-                  where a.player_id = p.id and qq.type <> 'poll' and (a.choice = qq.answer or qq.alt @> to_jsonb(a.choice)) and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
+                  where a.player_id = p.id and qq.type <> 'poll' and not qq.practice and (a.choice = qq.answer or qq.alt @> to_jsonb(a.choice)) and a.qi < s.qi + (case when s.phase in ('answer','final','draw','end') then 1 else 0 end)),
       'rank', (select count(*) + 1 from hq_players o where o.score > p.score))
     into me from hq_players p where p.id = p_player;
   end if;
@@ -338,7 +341,7 @@ begin
         from hq_players) x),
     'me', me,
     'question', case when q.idx is null then null else jsonb_build_object(
-        'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
+        'idx', q.idx, 'round', q.round, 'type', q.type, 'q', q.q, 'practice', q.practice, 'opts', q.opts, 'limit_sec', q.limit_sec, 'is_bet', q.is_bet,
         'has_image', exists (select 1 from hq_images where idx = q.idx), 'reveal', q.reveal, 'music', q.media <> '' or exists (select 1 from hq_audio where idx = q.idx),
         'answer', case when revealed then q.answer end,
         'alt', case when revealed then q.alt end,
@@ -564,9 +567,9 @@ begin
   elsif p_action = 'questions' then                 -- 문항 통째로 교체
     if s.phase <> 'lobby' then raise exception 'ONLY_IN_LOBBY'; end if;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice)
     select (ord - 1)::int, coalesce(e->>'round', ''), e->>'type', e->>'q', coalesce(e->'opts', '[]'), (e->>'answer')::int,
-           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false), coalesce(e->>'media', '')
+           coalesce(e->>'note', ''), coalesce((e->>'is_bet')::boolean, false), coalesce((e->>'limit_sec')::int, 15), coalesce(e->>'host', ''), coalesce(e->>'reveal', ''), coalesce((e->>'pinned')::boolean, false), coalesce(e->>'media', ''), coalesce((e->>'practice')::boolean, false)
     from jsonb_array_elements(p_arg->'list') with ordinality as t(e, ord);
     delete from hq_images where idx >= (select count(*) from hq_questions);
     delete from hq_audio where idx >= (select count(*) from hq_questions);
@@ -681,7 +684,7 @@ begin
     end loop;
     insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, old_idx, media)
       select round, type, q, opts, answer, note, host, false, limit_sec, reveal, true, idx, media
-      from hq_questions where pinned and not is_bet order by idx;
+      from hq_questions where pinned and not is_bet and not practice order by idx;
     if coalesce((p_arg->>'bet')::boolean, true) then
       insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id)
         select '올인 베팅', type, q, opts, answer, note, host, true, 15, '', false, id
@@ -689,14 +692,24 @@ begin
         order by used, random() limit 1;
     end if;
     if not exists (select 1 from _pick) then raise exception 'EMPTY_SET'; end if;
+    -- 시작 전 연습 3문제(O/X 1, 4지선다 1, 다수결·소수결 1): 맨 앞, 점수 없음
+    alter table _pick add column practice boolean not null default false;
+    if coalesce((p_arg->>'practice')::boolean, false) then
+      insert into _pick (round, type, q, opts, answer, note, host, is_bet, limit_sec, reveal, pinned, bank_id, practice)
+        select '연습 문제', type, q, opts, answer, note, host, false, 15, '', false, id, true from (
+          (select * from hq_bank where cat = '연습' and type = 'ox' order by random() limit 1)
+          union all (select * from hq_bank where cat = '연습' and type = 'mc' order by random() limit 1)
+          union all (select * from hq_bank where cat = '연습' and type in ('survey', 'minority') order by random() limit 1)) z;
+    end if;
     -- 고정 문항의 사진은 새 번호로 옮기고 나머지 사진은 정리
     -- 최종 순서: 사진 문제는 은행 문제 사이에 고르게 흩고(첫 문제는 사진으로 시작), 그 밖의 고정 문제는 뒤로, 베팅은 맨 끝.
     alter table _pick add column sk numeric;
-    n := (select count(*) from _pick where bank_id is not null and not is_bet);
+    n := (select count(*) from _pick where bank_id is not null and not is_bet and not practice);
     i := (select count(*) from _pick where pinned and reveal <> '');
     update _pick p set sk = case
+      when p.practice then -1e9 + p.ord
       when p.is_bet then 1e9
-      when p.bank_id is not null then (select count(*) from _pick x where x.bank_id is not null and not x.is_bet and x.ord < p.ord) * 10 + 5
+      when p.bank_id is not null then (select count(*) from _pick x where x.bank_id is not null and not x.is_bet and not x.practice and x.ord < p.ord) * 10 + 5
       when p.reveal <> '' then round((select count(*) from _pick x where x.pinned and x.reveal <> '' and x.ord < p.ord) * n::numeric / greatest(i, 1)) * 10
       else 1e8 + p.ord end
     where true;  -- Supabase 는 WHERE 없는 UPDATE 를 막는다
@@ -710,8 +723,8 @@ begin
     delete from hq_audio where true;
     insert into hq_audio (idx, data) select idx, data from _aud;
     delete from hq_questions where true;
-    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media)
-      select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media from _pick p join _ord o on o.ord = p.ord;
+    insert into hq_questions (idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice)
+      select o.idx, round, type, q, opts, answer, note, is_bet, limit_sec, host, reveal, pinned, media, practice from _pick p join _ord o on o.ord = p.ord;
     update hq_bank set used = used + 1 where id in (select bank_id from _pick where bank_id is not null);
     update hq_state set pack = coalesce(nullif(p_arg->>'pack', ''), pack) where id = 1;
     return jsonb_build_object('ok', true, 'total', (select count(*) from _pick));
@@ -774,6 +787,12 @@ begin
       update hq_state set phase = 'answer', updated_at = now() where id = 1;
       return;
     end if;
+  end if;
+
+  if q.practice then  -- 연습 문제: 정답만 보여 주고 점수·연속 기록은 그대로
+    update hq_players set last_gain = 0, last_bonus = '{}' where true;
+    update hq_state set phase = 'answer', updated_at = now() where id = 1;
+    return;
   end if;
 
   if q.type = 'poll' then
@@ -1145,4 +1164,10 @@ insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) val
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('트렌드',1,'mc','"올영세일"은 어느 매장의 세일?','["올리브영", "다이소", "이마트", "무신사"]'::jsonb,0,'세일 기간엔 장바구니가 터지죠','이번 올영세일에 뭐 사셨어요?','t_oliveyoung','','peer') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('예능',2,'mc','"나는 솔로" 남자 출연자 가명이 아닌 것은?','["상철", "영수", "광수", "민수"]'::jsonb,3,'영수·영호·영식·영철·광수·상철 등','오늘 여기 영수 계세요?','solo','','peer') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('예능',1,'mc','헤어진 연인과 함께 출연하는 연애 예능은?','["솔로지옥", "환승연애", "하트시그널", "나는 솔로"]'::jsonb,1,'X와 다시 한 집에…','과몰입 주의!','exchange','','peer') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('연습',1,'ox','연습 문제! 이 퀴즈는 빨리 누를수록 점수가 높다','[]'::jsonb,0,'맞아요! 정답 + 빠르기 점수','이건 연습이에요. 빨리 눌러 보세요!','pr_speed','','all') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('연습',1,'ox','연습 문제! 한 번 낸 답은 바꿀 수 없다','[]'::jsonb,0,'신중하게, 하지만 빠르게!','연습이니까 편하게!','pr_once','','all') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('연습',1,'mc','연습 문제! 1 + 1 × 2 = ?','["4", "2", "6", "3"]'::jsonb,3,'곱셈 먼저! 함정 문제도 나와요','몸풀기 산수!','pr_math','','all') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('연습',1,'mc','연습 문제! 오늘 우리가 하는 퀴즈 이름은?','["막잔 퀴즈", "한잔 퀴즈", "석잔 퀴즈", "두잔 퀴즈"]'::jsonb,1,'한잔 하면서 즐겨요','다 같이 짠!','pr_name','','all') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('연습',1,'survey','연습 문제(다수결)! 지금 내 기분은?','["최고", "좋음", "배고픔", "집에 가고 싶음"]'::jsonb,null,'가장 많이 고른 답이 정답인 문제도 있어요','솔직하게!','pr_mood','','all') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
+insert into hq_bank (cat,diff,type,q,opts,answer,note,host,topic,media,pack) values ('연습',1,'minority','연습 문제(소수결)! 남들이 덜 고를 것 같은 숫자는?','["1", "2", "3", "4"]'::jsonb,null,'가장 적게 고른 답이 정답인 문제도 있어요','눈치 싸움 연습!','pr_num','','all') on conflict (q, media) do update set pack=excluded.pack, cat=excluded.cat, diff=excluded.diff, type=excluded.type, opts=excluded.opts, answer=excluded.answer, note=excluded.note, host=excluded.host, topic=excluded.topic;
 insert into hq_config (id, pin_hash) values (1, extensions.crypt('1234', extensions.gen_salt('bf'))) on conflict (id) do nothing;

@@ -19,12 +19,12 @@ const blank = () => ({ round: '', type: 'mc', q: '', opts: ['', '', '', ''], ans
 const fromServer = (r) => ({
   round: r.round ?? '', type: r.type, q: r.q ?? '', note: r.note ?? '', host: r.host ?? '',
   opts: r.type === 'ox' ? ['', '', '', ''] : [...(r.opts ?? []), '', '', '', ''].slice(0, 4),
-  answer: r.answer, is_bet: !!r.is_bet, limit_sec: r.limit_sec ?? 15, reveal: r.reveal ?? '', pinned: !!r.pinned, media: r.media ?? '',
+  answer: r.answer, is_bet: !!r.is_bet, limit_sec: r.limit_sec ?? 15, reveal: r.reveal ?? '', pinned: !!r.pinned, media: r.media ?? '', practice: !!r.practice,
 })
 const toServer = (e) => ({
   round: e.round.trim(), type: e.type, q: e.q.trim(), note: e.note.trim(), host: e.host.trim(),
   opts: e.type === 'ox' ? [] : e.opts.map((o) => o.trim()),
-  answer: NO_ANSWER.includes(e.type) ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal, pinned: e.pinned, media: e.media.trim(),
+  answer: NO_ANSWER.includes(e.type) ? null : e.answer, is_bet: e.type !== 'poll' && e.is_bet, limit_sec: e.limit_sec, reveal: e.reveal, pinned: e.pinned, media: e.media.trim(), practice: !!e.practice,
 })
 
 function problems(list) {
@@ -100,7 +100,7 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
       {list.map((e, i) => <button key={i} type="button" className="qe-row" onClick={() => setOpen(i)}>
         <b className="num">{i + 1}</b>
         <span className="qe-row-main"><small>{e.round || '라운드 없음'}{e.is_bet ? ' · 베팅' : ''}</small>{e.q || '(문제를 적어 주세요)'}</span>
-        <span className="qe-tags">{images.includes(i) && <i>사진</i>}{audios.includes(i) ? <i>노래 · 클립</i> : e.media && <i className={parseYouTube(e.media)?.start ? 'start' : 'nostart'}>{parseYouTube(e.media) ? (parseYouTube(e.media).start ? `노래 ${mmss(parseYouTube(e.media).start)}부터` : '노래 · 처음부터') : '노래'}</i>}{e.pinned && <i className="pin">고정</i>}</span>
+        <span className="qe-tags">{images.includes(i) && <i>사진</i>}{audios.includes(i) ? <i>노래 · 클립</i> : e.media && <i className={parseYouTube(e.media)?.start ? 'start' : 'nostart'}>{parseYouTube(e.media) ? (parseYouTube(e.media).start ? `노래 ${mmss(parseYouTube(e.media).start)}부터` : '노래 · 처음부터') : '노래'}</i>}{e.pinned && <i className="pin">고정</i>}{e.practice && <i>연습</i>}</span>
         <ChevronRight size={18} />
       </button>)}
     </div>}
