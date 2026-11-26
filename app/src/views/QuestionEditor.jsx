@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react'
 import { ask } from '../lib/confirm'
 import { parseYouTube } from '../lib/ui'
 import { mmss } from '../lib/ytplayer'
-import { ArrowDown, ArrowUp, Braces, ChevronLeft, ChevronRight, ImagePlus, Music, Plus, Save, Smartphone, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Braces, ChevronLeft, ChevronRight, ImagePlus, Music, Plus, Save, Shuffle, Smartphone, Trash2 } from 'lucide-react'
+
+// 회차 이름 ↔ 은행 카테고리 (이 문제만 다시 뽑기에 쓴다)
+const ROUND_CAT = { '추억 소환': '추억', '학창 시절 소환': '학창시절', '게임·인터넷 추억': '게임', '요즘 트렌드': '트렌드', '요즘 인물 퀴즈': '인물', '추억의 가요': '가요',
+  '노래 퀴즈': '노래', '요즘 말 테스트': '요즘 말', '예능·드라마 소환': '예능', '예능·드라마': '예능', '이모지 퀴즈': '이모지', '회사 생활': '회사', '상식 퀴즈': '상식',
+  '100명에게 물었습니다': '다수결', '소수가 이긴다': '소수결', '올인 베팅': '베팅' }
 
 const TYPES = [['mc', '4지선다'], ['ox', 'O/X'], ['survey', '다수결'], ['minority', '소수결'], ['poll', '투표']]
 const NO_ANSWER = ['poll', 'survey', 'minority']
@@ -50,6 +55,23 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
 
   const edit = (i, patch) => { setList((l) => l.map((e, k) => (k === i ? { ...e, ...patch } : e))); setDirty(true) }
   const move = (i, d) => { setList((l) => { const c = [...l]; [c[i], c[i + d]] = [c[i + d], c[i]]; return c }); setDirty(true); setOpen((o) => (o === i ? i + d : o)) }
+  // 이 문제만 같은 카테고리의 다른 은행 문제로 바꾼다(편집 중인 내용에만 반영, 저장해야 적용)
+  async function reroll(i) {
+    const e = list[i]
+    if (images.includes(i) || audios.includes(i)) return setMsg('사진·음원이 붙은 문제는 바꿀 수 없어요. 직접 고치거나 지워 주세요')
+    const cat = e.is_bet ? '베팅' : ROUND_CAT[e.round]
+    if (!cat) return setMsg('이 문제는 은행 카테고리를 알 수 없어서 다시 뽑을 수 없어요')
+    let pack = 'boss'; try { pack = localStorage.getItem('hq-pack') || 'boss' } catch { /* noop */ }
+    let items; try { items = await admin('bank_list', { cat, pack }) } catch { return }
+    const taken = new Set(list.map((x) => `${x.q}|${x.media}`))
+    const pool = items.filter((b) => !taken.has(`${b.q}|${b.media ?? ''}`))
+    if (!pool.length) return setMsg(`'${cat}'에 바꿀 문제가 더 없어요`)
+    const least = Math.min(...pool.map((b) => b.used ?? 0))
+    const fresh = pool.filter((b) => (b.used ?? 0) <= least + 1)
+    const b = fresh[Math.floor(Math.random() * fresh.length)]
+    edit(i, { ...fromServer({ ...b, round: e.round, is_bet: e.is_bet, limit_sec: b.media ? 25 : 15, reveal: '', pinned: false }), pinned: false })
+    setMsg(`${i + 1}번을 다른 '${cat}' 문제로 바꿨어요. 저장을 눌러야 적용돼요`)
+  }
   const remove = async (i) => { if (await ask(`${i + 1}번 문제를 지울까요?`, { ok: '지우기', danger: true })) { setOpen(null); setList((l) => l.filter((_, k) => k !== i)); setDirty(true) } }
 
   async function save() {
@@ -90,6 +112,8 @@ export default function QuestionEditor({ admin, phase, setMsg, images, onImage, 
         <button type="button" className="ghost" disabled={open >= list.length - 1} onClick={() => setOpen(open + 1)} aria-label="다음 문제"><ChevronRight size={16} /></button>
       </span>
     </div>}
+    {open != null && list[open] && <button type="button" className="ghost qe-reroll" disabled={phase !== 'lobby'} onClick={() => reroll(open)}>
+      <Shuffle size={16} style={{ verticalAlign: -3 }} /> 이 문제만 같은 카테고리에서 다시 뽑기{phase !== 'lobby' && ' (게임 시작 전에만)'}</button>}
     {list.map((e, i) => i === open && (
       <fieldset key={i} className="qe-card" disabled={locked}>
         {e.reveal && !images.includes(i) && !dirty && <div className="warn">사진 연출 문제인데 사진이 아직 없어요. 아래 '사진 붙이기'를 눌러 주세요.</div>}
